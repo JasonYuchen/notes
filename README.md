@@ -17,6 +17,7 @@ DONE:
 12. **Java Concurrency in Practice**, Brian Goetz
 13. **Database System Concepts**, Abraham Silberschatz
 14. **Designing Data-Intensive Applications**, Martin Kleppmann
+15. **In Search of an Understandable Consensus Algorithm**, Diego Ongaro
 
 PARTIAL:
 
@@ -25,6 +26,7 @@ PARTIAL:
 02. **Spark The Definitive Guide**, Matei Zaharia
 03. **Data Mining Concepts and Techniques**, Jiawei Han
 04. **Database Management Systems**, Ramakrishnan
+05. **The Go Programming Language**, Alan Donovan
 
 TO READ:
 
@@ -32,3 +34,4 @@ TO READ:
 01. **Streaming Systems**, Tyler Akidau
 02. **Consensus Bridging Theory and Practice**, Diego Ongaro
 03. **Distributed Algorithms**, Nancy A. Lynch
+04. **End-to-End Arguments in System Design**, D.P.Reed
