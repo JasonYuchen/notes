@@ -11,7 +11,7 @@ Martin Kleppmann: Design Data Intensive Applications
 
 [raft](https://raft.github.io)
 
-Diego Ongaro: Consensus - bridging theory and practive
+Diego Ongaro: Consensus - bridging theory and practice
 
 ## mit6.824
 
