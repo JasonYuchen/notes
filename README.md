@@ -11,7 +11,7 @@ Martin Kleppmann: Design Data Intensive Applications
 
 [raft](https://raft.github.io)
 
-Diego Ongaro: Concensus - bridging theory and practive
+Diego Ongaro: Consensus - bridging theory and practive
 
 ## mit6.824
 
@@ -29,9 +29,9 @@ James F. Kurose: Computer Networking A Top Down Approach
 
 W.Richard Stevens: TCP/IP Illustrated Volume 1
 
-## concensus
+## consensus
 
-Heidi Howard: Distributed Concensus Revised
+Heidi Howard: Distributed Consensus Revised
 
 ## concurrency
 
