@@ -79,7 +79,7 @@ GFS提供了较为宽松的一致性模型relaxed consistency model
     如果出现一系列成功的文件操作，那么master通过在每个replica上都以相同的顺序执行来确保defined，同时master通过chunk version版本号来使得缺失一些操作的replica被标记为stale
 
 2. **对应用程序的含义 Implications for Applications**
-    应用程序应该依赖append操作而不是overwrite操作，并且写入能够self-validating，self-identifying的数据
+    应用程序应该依赖append操作而不是overwrite操作，并且写入能够self-validating，self-identifying的数据，例如可以通过应用程序每次都写入临时文件，成功后才进行atomically rename到真实的文件，从而reader不会看到partially written的数据，同时也可以通过这种方式应对partial failure导致的replicas不一致问题（GFS提供relaxed consistency guarantee）
 
 ## 系统交互 System Interactions
 
@@ -100,6 +100,8 @@ lease有一个超时时间，当持续进行操作时master可以不断延长超
 7. primary回复client操作完成
 
 **可见，写入时是先推送数据给chunk servers缓存，随后再发起请求完成写入**
+
+当primary或secondary写入失败时，clients会持续重试直到超过限制，**失败的写入会导致replicas不一致**（例如部分secondary写入失败）
 
 ### 2. 数据流 Data Flow
 
