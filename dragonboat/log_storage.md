@@ -70,3 +70,134 @@ type LogReader struct {
 ## ShardedDB
 
 `TODO`
+
+## rafter - segmented log files
+
+```text
+                     -------------- segment manager --------------
+                    /                      |                      \             
+                   /                       |                       \
+              segment ptr              segment ptr              segment ptr
+             +-----------+                 |                        | 
+             |   meta    |                 |                        |
+             +-----------+                 |                        |
+             |inmem index|                 |                        |
+             +-----------+                 |                        |
+memory            |                        |                        |
+------------------|------------------------|------------------------|-------------
+disk(s)           |                        |                        |
+               00001.log               00056.log           00129.log_inprogress
+             +-----------+           +-----------+            +-----------+
+             |           |           |           |            |           |
+             +-----------+           +-----------+            +-----------+
+                  
+* segment ptr holds an in-memory index for each segment log file: 
+    vector<pair<uint64_t/*offset*/, uint64_t/*term*/>>
+  which is constructed when loading the segment log file.
+
+different clusters can speficify different directories to store raft data.
+
+rafter @ disk0
+  |--<clusterID:020d_nodeID:020d>
+  |    |--config
+  |    |--<startIndex:020d>.log
+  |    |--<startIndex:020d>.log
+  |    |--<startIndex:020d>.log_inprogress
+  |    |--...
+  |    |--<includeIndex:020d>.snapdata
+  |    |    |--snapshot
+  |    |    |--<fileID>.external          <-- hard link to user provided file
+  |    |    |--<fileID>.external
+  |    |--<uuid>.snapdata                 <-- when receiving snapshot from leader or generating new snapshot, only rename to finalDir when completed
+  |         |--snapshot
+  |         |--<fileID>.external
+  |         |--<fileID>.external
+  |--<clusterID:020d_nodeID:020d>
+
+rafter @ disk1
+  |--<clusterID:020d_nodeID:020d>
+```
+
+**dragonboat:**
+
+- 对于`snapshot`，直接存储在rocksdb中，并且包含一个`filepath`指向`snapshot`具体的`snapshot data`数据文件（`session, statemachine`写入的数据等）
+- 对于user statemachine在`file collection`中提供的文件，直接hard link到`snapshot data`目录下，发送时从这里发送见`rsm/files.go::Files::PrepareFiles()`
+
+**rafter:**
+
+- 对于`snapshot`，在`.snapdata`目录下存储`snapshot`文件（即drganboat中的`snapshot`和`snapshot data`二合一）
+- 对于user statemachine在`file collection`中提供的文件，直接hard link到`snapshot data`目录下，
+- 发送`snapshot`时，将`.snapdata`下的每一文件单独分割成数个`snapshotchunk`发送，在remote再重建为`snapshot, <fileID>.external`文件
+- 接收或生成`snapshot`时，所有文件都暂存在`<uuid>.snapdata`中，待全部完成后，最后一步是`rename`为`<includeIndex:020d>.snapdata`
+
+```text
+             segment
+    +-----------------------+
+    | 64bit latest term     |
+    +-----------------------+
+    | 64bit latest vote     |
+    +-----------------------+
+    | 64bit latest commit   |  <-- fdatasync is enough
+    +-----------------------+
+    | 64bit start index     |  <-- the same as the end index of last completed segment
+    +-----------------------+
+    | 64bit end index       |  <-- initially 0, filled when rolling, exclusive
+    +-----------------------+
+    |  8bit checksum type   |
+    +-----------------------+
+    | 24bit reserved        |
+    +-----------------------+
+    | 32bit header chksum   |
+    +-----------------------+
+    | 64bit log term        |  <-- log entry
+    | 64bit log index       |
+    |  8bit log type        |
+    |  8bit checksum type   |
+    | 16bit reserved        |
+    | 32bit data length     |  // TODO: check the checksum implementation in braft
+    | 32bit data chksum     |  <-- the checksum of data
+    | 32bit header chksum   |  <-- the checksum of previous fields
+    | bytes data            |
+    +-----------------------+
+    |        ......         |
+    +-----------------------+  <-- exceeds segment max size, rolling
+
+            snapshot
+    +-----------------------+
+    | 64bit include term    |
+    +-----------------------+
+    | 64bit include index   |
+    +-----------------------+
+    |  8bit header chk type | <-- checksum type for header (except 4 bytes fields)
+    +-----------------------+
+    |  8bit data chk type   | <-- checksum type for data
+    +-----------------------+
+    |  8bit compression type| <-- compression type for payload
+    +-----------------------+
+    |  8bit sm type         | <-- state machine type
+    +-----------------------+
+    | 32bit option          | <-- is_witness: 1<<0, is_dummy: 1<<1, is_imported: 1<<2 
+    +-----------------------+
+    | 64bit membership len  |
+    +-----------------------+
+    | 64bit snapshotfile len|
+    +-----------------------+
+    | 64bit session len     |
+    +-----------------------+
+    | 64bit payload len     |
+    +-----------------------+
+    | 32bit data checksum   |
+    +-----------------------+
+    | 32bit header checksum |
+    +-----------------------+
+    |512bit reserved        | <-- to form a header of 128 Bytes (1024 bits)
+    +-----------------------+
+    | bytes membership      |
+    +-----------------------+
+    | bytes snapshotfile    |
+    +-----------------------+
+    | bytes session         |
+    +-----------------------+
+    | bytes payload         |
+    +-----------------------+
+```
