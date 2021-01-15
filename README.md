@@ -46,3 +46,22 @@ Brian Goetz: Java Concurrency in Practice
 ## ds
 
 Mark Allen Weiss: Data Structures & Algorithm Analysis in C++
+
+## brpc
+
+[brpc documents](https://github.com/apache/incubator-brpc/tree/master/docs/cn)
+
+## papers
+
+Miscellaneous papers:
+
+- [KVell: the Design and Implementation of a Fast Persistent Key-Value Store](papers/2019_SOSP_KVell.md) SOSP '19
+- [An Analysis of Performance Evolution of Linux's Core Operations](papers/2019_SOSP_Syscall.md) SOSP '19
+
+Papers in mit6.824:
+
+- [MapReduce: Simplified Data Processing on Large Clusters](mit6.824/MapReduce.md)
+- [The Google File System](mit6.824/GFS.md)
+- [The Design of a Practical System for Fault-Tolerant Virtual Machines](mit6.824/Fault_Tolerant_VM.md)
+- [ZooKeeper: Wait-free coordination for Internet-scale systems](mit6.824/ZooKeeper.md)
+- [Object Storage on CRAQ - High-throughput chain replication for read-mostly workloads](mit6.824/CRAQ_Chain_Replication.md)
