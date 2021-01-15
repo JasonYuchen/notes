@@ -62,7 +62,7 @@ ZK使用ZAB选举出的leader作为ZK的leader，从而生成transaction的节�
 
 ------------------------
 
-> **2008 LADIS Asimple totally ordered broadcast protocol**
+> **2008 LADIS A simple totally ordered broadcast protocol**
 
 #### 要求 Reuirements
 
@@ -93,7 +93,9 @@ Zab分为两个阶段**广播broadcast**和**恢复recovery**阶段，Zab首先�
 
     广播包含了简化的二阶段提交two-phase commit, 2PC：leader propose一个请求，收集votes，并commit；**一旦leader通过majority的votes确认并commit就会强制所有follower都接受该请求而不需要等到所有节点都确认**，并且如果失败也不存在回滚rollback，如果**失败通常说明leader不拥有quorum，此时会进入recovery模式等待合法的leader**
 
-    通过使用**TCP协议来保证所有message都是FIFO**处理的（从而有client的FIFO保证），在propose一条消息时leader会赋予一个唯一的单调递增id即**zxid**
+    通过使用**TCP协议来保证所有message都是FIFO**处理的（从而有client的FIFO保证），在propose一条消息时leader会赋予一个唯一的单调递增id即**zxid**，follower收到消息时就立即写入本地磁盘（尽可能批量化写入磁盘）后**返回ACK给leader**；当leader收到**majority的ACK时就会发送commit**并且deliver该消息，所有followers收到对应的commit时也会deliver该消息
+
+    另外leader需要对每个follower都持续广播follower上还未有的消息，并且发送leader最新的commit值
 
 2. **恢复 recovery**
 

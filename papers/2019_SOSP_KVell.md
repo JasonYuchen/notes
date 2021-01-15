@@ -69,6 +69,8 @@
 
 在现代NVMe设备上，避免共享避免同步开销从而**充分利用CPU的每一个cycle**可以显著提升系统性能，例如[Seastar](https://github.com/scylladb/seastar)
 
+> 另外，由于**spectre**和**meltdown**补丁的引入，syscall的代价更大从而进一步导致大量syscall下CPU负载更重，[An Analysis of Performance Evolution of Linux's Core Operations](2019_SOSP_Syscall.md)
+
 ### 2. LSM和B-Tree KV中性能波动明显
 
 从性能表现中可以看出，LSM和B-Tree都会出现周期性的性能波动，在LSM中定期出现的compaction导致write stall，在B-Tree中也会由于cache不足需要eviction导致stall
