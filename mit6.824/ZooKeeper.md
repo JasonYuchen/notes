@@ -34,11 +34,44 @@ Client每次连接到ZK都会创建一个相应的session，每个session有一�
 
 - 一个分布式应用的leader进行配置升级，删除ready node，进行配置修改，创建ready node，同时基于FIFO order，leader可以异步发送一系列配置升级的请求，ZK保证ready node在最后再被创建
 - follower在见到ready node时才知道配置更新已完成，因为follower一定能看到ready node创建前的所有修改
-- 如果follower先看到了删除前的ready node（设置了watch），则在看到修改了一半的配置前，一定先被watch机制通知了ready node的删除（[What ZooKeeper Guarantees about Watches](https://zookeeper.apache.org/doc/r3.4.0/zookeeperProgrammers.html#sc_WatchGuarantees)）
+- 如果follower先看到了删除前的ready node（设置了watch），**则在看到修改了一半的新配置前，一定先被watch机制通知了ready node的删除**（[What ZooKeeper Guarantees about Watches](https://zookeeper.apache.org/doc/r3.4.0/zookeeperProgrammers.html#sc_WatchGuarantees)），但此时也**允许读到了修改前的旧配置，因为新数据还未到当前节点则也不会触发watch**，也不会修改旧数据，属于stale read
 
 由于每个client实际读的是当前节点的数据，跨client并没有读同步（即**线性一致性读linearizable reads**），因此当client A完成写入并通过channle直接通知client B时，B若直接去读当前状态则可能会出现stale read，此时可以通过client B发起"write"进行序列化同步
 
 ### 4. 用法示例 Examples of primitives
+
+- **简单的锁 Simple Locks**
+    使用znode代表一个锁lock，
+  - 获得锁 acquire lock：client使用`create(<znode>, EPHEMERAL)`创建znode，当成功时说明已经获得了锁，若失败了就可以使用`read(<znode>, watch=true)`等待被通知锁的释放事件（`delete(<znode>)`等于释放）
+  - 释放锁 release lock：当client宕机时session失效从而自动删除`EPHEMERAL`的`znode`，或是主动删除，均等同于释放锁
+  - **惊群herd effect**：如果等待锁的client特别多，一旦释放就会唤醒所有等待者，但依然只能有一个获得锁
+  - 避免惊群：通过使用`create(<>, EPHEMERAL | SEQUENTIAL)`创建顺序文件sequential file，从而**每个client获得锁前首先检查是否轮到自己**（自己的znode如果是当前目录下最先的，就是轮到了自己，否则就是等待watch在自己之前一位的顺序文件，若收到通知则**可能**是前任释放了锁）
+
+    ```text
+    Lock:
+    n = create(1 + "/lock-", EPHEMERAL | SEQUENTIAL)
+    START:
+        C = getChildren(1, false)
+        if n is lowest znode in C, exit with lock
+        p = znode in C ordered just before n
+        if exists(p, true), wait for watch event
+        goto START
+
+    Unlock:
+    delete(n)
+    ```
+  
+    **可能会出现伪唤醒**，假如前一个获得锁请求在创建顺序文件成功后未获得锁立即宕机，此时后一个还未轮到就被watch唤醒了，如下：
+
+    ```text
+    lock-10 <- current lock holder
+    lock-11 <- next one (just created but the client dies before it gets the lock)
+    lock-12 <- my request
+    ```
+
+- **读写锁 Read/Write Locks**
+
+`TODO`
 
 ## ZooKeeper应用
 
