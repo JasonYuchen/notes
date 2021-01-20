@@ -60,8 +60,9 @@ Miscellaneous papers:
 
 Papers in mit6.824:
 
-- [MapReduce: Simplified Data Processing on Large Clusters](mit6.824/MapReduce.md)
-- [The Google File System](mit6.824/GFS.md)
-- [The Design of a Practical System for Fault-Tolerant Virtual Machines](mit6.824/Fault_Tolerant_VM.md)
-- [ZooKeeper: Wait-free coordination for Internet-scale systems](mit6.824/ZooKeeper.md)
-- [Object Storage on CRAQ - High-throughput chain replication for read-mostly workloads](mit6.824/CRAQ_Chain_Replication.md)
+- [MapReduce: Simplified Data Processing on Large Clusters](mit6.824/MapReduce.md) OSDI '04
+- [The Google File System](mit6.824/GFS.md) SOSP '03
+- [The Design of a Practical System for Fault-Tolerant Virtual Machines](mit6.824/Fault_Tolerant_VM.md) SIGOPS '10
+- [ZooKeeper: Wait-free coordination for Internet-scale systems](mit6.824/ZooKeeper.md) ATC '10
+- [Object Storage on CRAQ - High-throughput chain replication for read-mostly workloads](mit6.824/CRAQ_Chain_Replication.md) ATC '09
+- [Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases](mit6.824/Aurora.md) SIGMOD '17
