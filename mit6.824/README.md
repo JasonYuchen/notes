@@ -81,7 +81,12 @@ Why is ZooKeeper useful despite loose consistency?
 
 ## Lecture 09 - More Replication: CRAQ
 
-lecture notes
+What is Chain Replication (CR)? What is CRAQ?
+Why is CR attractive (vs Raft)? How about CRAQ?
+
+**CASE STUDY: CRAQ**
+
+[lecture notes](09.CRAQ.md)
 [material notes](CRAQ_Chain_Replication.md)
 
 ## Lecture 10 - Cloud Replicated DB: Aurora

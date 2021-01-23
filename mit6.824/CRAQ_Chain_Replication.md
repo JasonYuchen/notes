@@ -28,6 +28,11 @@ Chain Replication with Apportioned Quieries, CRAQ
 
 当写入扩散到tail时，所有节点都已写入，此时写入被认为已提交committed并且会返回给写入的client（CR原论文中由tail返回给client，而CRAQ中由收到了tail ACK的head返回给client），此后client进行读只会读到已提交的写入
 
+当节点宕机时，所有节点都知道当前commit的位置，但是需要将还未写入到tail的节点继续扩散到tail：
+- 如果head宕机，successor成为新head，不会丢失任何committed writes
+- 如果tail宕机，predecessor成为tail，不会丢失任何writes
+- 如果intermediate宕机，从chain中剔除，但是predecessor需要将writes重新发送给successor
+
 ![CRAQ1](images/CRAQ1.png)
 
 ### 3. 链式复制与分配的查询 Chain Replication with Apportioned Queries
