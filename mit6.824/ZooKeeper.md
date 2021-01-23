@@ -23,7 +23,22 @@ Client每次连接到ZK都会创建一个相应的session，每个session有一�
 
 ### 2. 客户端接口 Client API
 
-`TODO`
+```java
+create(path, data, flags)
+    // exclusive -- only first create indicates success
+delete(path, version)
+    // if znode.version = version, then delete
+exists(path, watch)
+    // watch=true means also send notification if path is later created/deleted
+getData(path, watch)
+setData(path, data, version)
+    // if znode.version = version, then update
+getChildren(path, watch)
+sync()
+    // sync then read ensures writes before sync are visible to same client's read, client could instead submit a write
+```
+
+ZooKeeper的客户端读取或写入时会带有一个版本号`version number`，基于版本号实现微事务的功能，只有版本匹配才会写入成功（并且版本号更新），类似原子变量的CAS操作
 
 ### 3. ZooKeeper提供的保证 ZooKeeper guarantees
 
