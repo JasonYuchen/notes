@@ -27,7 +27,6 @@ Coroutines定义了以下两种接口：
 
 当该`awaitable`有可用的`operator co_await()`重载时，就会调用并获得Awaiter对象，否则`awaitable`就会被直接作为Awaiter
 
-
 ```C++
 template<typename P, typename T>
 decltype(auto) get_awaitable(P& promise, T&& expr)

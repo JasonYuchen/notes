@@ -4,19 +4,25 @@
 
 Martin Kleppmann: Design Data Intensive Applications
 
+[here](https://github.com/JasonYuchen/notes/tree/master/ddia)
+
 ## dragonboat
 
-[dragonboat](https://github.com/lni/dragonboat)
+[dragonboat](https://github.com/lni/dragonboat) is a high performance multi-group Raft consensus library in pure Go
+
+[here](https://github.com/JasonYuchen/notes/tree/master/dragonboat)
 
 ## raft
 
-[raft](https://raft.github.io)
-
 Diego Ongaro: Consensus - bridging theory and practice
+
+[here](https://github.com/JasonYuchen/notes/tree/master/raft)
 
 ## mit6.824
 
-[Distributed Systems Engineering](https://pdos.csail.mit.edu/6.824/schedule.html)
+[Distributed Systems Engineering](https://pdos.csail.mit.edu/6.824/schedule.html) is a course for MIT computer science students
+
+[here](https://github.com/JasonYuchen/notes/tree/master/mit6.824)
 
 ## os
 
@@ -36,7 +42,9 @@ Heidi Howard: Distributed Consensus Revised
 
 ## coroutine
 
-[Lewis Baker: Asymmetric Transfer](https://lewissbaker.github.io/)
+[Lewis Baker: Asymmetric Transfer](https://lewissbaker.github.io/) contains several blogs with examples introducing coroutines in C++20
+
+[here](mit6.824)
 
 ## concurrency
 
@@ -45,15 +53,21 @@ Brian Goetz: Java Concurrency in Practice
 
 ## cs186
 
-[Introduction to Database Systems](https://cs186berkeley.net/)
+[Introduction to Database Systems](https://cs186berkeley.net/) is a course for berkeley computer science students
+
+[here](https://github.com/JasonYuchen/notes/tree/master/cs186)
 
 ## ds
 
 Mark Allen Weiss: Data Structures & Algorithm Analysis in C++
 
+[here](https://github.com/JasonYuchen/notes/tree/master/ds)
+
 ## brpc
 
-[brpc documents](https://github.com/apache/incubator-brpc/tree/master/docs/cn)
+[brpc](https://github.com/apache/incubator-brpc/tree/master/docs/cn) is a C++ RPC library open sourced by baidu
+
+[here](https://github.com/JasonYuchen/notes/tree/master/brpc)
 
 ## papers
 
@@ -70,3 +84,4 @@ Papers in mit6.824:
 - [ZooKeeper: Wait-free coordination for Internet-scale systems](mit6.824/ZooKeeper.md) ATC '10
 - [Object Storage on CRAQ - High-throughput chain replication for read-mostly workloads](mit6.824/CRAQ_Chain_Replication.md) ATC '09
 - [Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases](mit6.824/Aurora.md) SIGMOD '17
+- [Frangipani: A Scalable Distributed File System](mit6.824/Frangipani.md) SOSP '97
