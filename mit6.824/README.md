@@ -113,7 +113,7 @@ What does a Aurora read/write look like? Quorum?
 
 **CASE STUDY: Aurora**
 
-- lecture notes
+- [lecture notes](10.Aurora.md)
 - [material notes](Aurora.md)
 
 ## Lecture 11 - Cache Consistency: Frangipani
