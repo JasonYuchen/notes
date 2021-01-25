@@ -6,11 +6,11 @@ Martin Kleppmann: Design Data Intensive Applications
 
 [here](https://github.com/JasonYuchen/notes/tree/master/ddia)
 
-## dragonboat
+## consistency
 
-[dragonboat](https://github.com/lni/dragonboat) is a high performance multi-group Raft consensus library in pure Go
+Dive into various consistency models
 
-[here](https://github.com/JasonYuchen/notes/tree/master/dragonboat)
+[here](https://github.com/JasonYuchen/notes/tree/master/consistency)
 
 ## raft
 
@@ -68,6 +68,13 @@ Mark Allen Weiss: Data Structures & Algorithm Analysis in C++
 [brpc](https://github.com/apache/incubator-brpc/tree/master/docs/cn) is a C++ RPC library open sourced by baidu
 
 [here](https://github.com/JasonYuchen/notes/tree/master/brpc)
+
+## dragonboat
+
+[dragonboat](https://github.com/lni/dragonboat) is a high performance multi-group Raft consensus library in pure Go
+
+[here](https://github.com/JasonYuchen/notes/tree/master/dragonboat)
+
 
 ## papers
 

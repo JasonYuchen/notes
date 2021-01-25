@@ -38,6 +38,8 @@ Aurora相比于传统的架构有三项显著的优势：
 
 由于MTTF往往和硬件设备本身或是不可抗力有关几乎不可能人为减少，因此通过提高MTTR来提高系统的稳健性，主要方式是将**数据库卷分区成固定大小的段segments，并且多副本6路6-way存储到Protection Groups, PG上**，从而当某节点宕机时，对应的segments可以快速从其他节点恢复
 
+通常，被分区备份后，**一个storage server上存储的多个PGs，其副本replicas也位于各不相同的storage servers上**，因此当一个storage server永久丢失后，相应的PGs的一个replica也丢失，需要满足容错要求而**新建的replicas也可以位于各不相同的storage servers上**，因此多个PGs的新副本replicas可以独立从多个storage server上获取数据快速恢复
+
 ## 日志即数据库 The Log is the Database
 
 ### 1. 写放大带来的负担 The Burden of Amplified Writes
@@ -112,13 +114,17 @@ Aurora在实际运行过程中与storage的交互如下：
 
 - **写入 Writes**
     Aurora持续操作，写入redo log到PGs，并在获得quorum后更新当前的VDL值，任意时刻都会有并发允许的一批事务在执行，每个事务都会产生redo log，由Aurora分配单调递增的唯一LSN，并且为了避免过多的redo log还未被storage ACK同时通过这种**背压back pressure的方式限制并发事务**，引入了LSN的限制`LSN < VDL + LAL`，即分配的**LSN必须小于当前的VDL和一个常数LSN Allocation Limit, LAL的和**
+    
     每个PG维护一个**Segment Complete LSN, SCL**记录该PG所持有的所有log records里的最大值，即所有`LSN <= SCL`的日志都持有，同时Aurora会追踪记录所有PGs的SCL
 - **提交 Commits**
     Commit的处理是完全异步的，当client commit一条事务时，Aurora仅仅在提交事务列表中记录该事务被commit以及对应的LSN，仅当VDL不断被推进到`VDL >= commit LSN`时，异步通知client事务结束
 - **读取 Reads**
     Aurora也采用buffer management对data page进行缓存，当缓存满时访问未命中的数据会导致从磁盘读取page并替换缓存中的某一页，传统数据库在剔除dirty page时会将该page写回磁盘来确保其他read一定能读取到最新的page，Aurora策略不同但提供了一样的**read到最新数据的保证**：eviction时不写回磁盘，而**读取page时保证缓存内的版本最新**
+    
     当Aurora剔除page时会检查该page对应的最新LSN，并且**仅剔除`LSN >= VDL`的page**，从而保证了对该page的所有修改都已经体现在log中（见replicas应用log records的规则），并且当访问该page且未命中时从磁盘中以当前VDL读取出来的就是可靠durable的版本
+    
     Aurora在常规情况下不需要quorum read，当正常read且未命中需要从磁盘中读取时建立一个**读取点read-point代表了当前的VDL**，由于Aurora会记录所有SCL，因此**只要满足`SCL >= read-point`的storage节点就可以满足read请求**
+    
     同时Aurora控制所有正在执行的read请求并知道所有PGs的SCL，因此可以计算出每个PG需要服务的最小read-point, Minimum Read Point LSN，PGs通过gossip协议广播这个最小的read-point从而**Protection Group Min Read Point LSN, PGMRPL可以作为一个水位线标志low water mark，在此之前的所有log records不再被需要可以垃圾回收**，每个storage节点在获知PGMRPL后就可以推进materialization并garbage collection
 - **副本 Replicas**
     同一个共享存储volume至多有1个writer和15个reader，当writer生成log后会**同时发送给storage节点和所有read replicas**，在reader侧数据库对每一条log record单独处理：

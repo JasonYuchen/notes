@@ -5,7 +5,9 @@
 ## Lecture 01 - Introduction
 
 What is a distributed system?
+
 Why do people build distributed systems?
+
 Why take this course?
 
 **CASE STUDY: MapReduce**
@@ -16,6 +18,7 @@ Why take this course?
 ## Lecture 02 - RPC and Threads
 
 Why threads?
+
 What is Remote Procedure Call (RPC)?
 
 - [lecture notes](02.RPC_threads.md)
@@ -24,6 +27,7 @@ What is Remote Procedure Call (RPC)?
 ## Lecture 03 - GFS
 
 Why is distributed storage hard?
+
 What would we like for consistency?
 
 **CASE STUDY: The Google File System**
@@ -34,6 +38,7 @@ What would we like for consistency?
 ## Lecture 04 - Primary-Backup Replication
 
 What kinds of failures can replication deal with?
+
 How to replicate? State transfer or Replicated state machine?
 
 **CASE STUDY: VMware Fault-Tolerant Virtual Machines**
@@ -49,7 +54,9 @@ How to replicate? State transfer or Replicated state machine?
 ## Lecture 06 - Fault Tolerance: Raft (1)
 
 How coulds split brain arise, and why is it damaging?
+
 Why a leader?
+
 Why the logs?
 
 **CASE STUDY: Raft (elections and log handling)**
@@ -60,8 +67,11 @@ Why the logs?
 ## Lecture 07 - Fault Tolerance: Raft (2)
 
 How can logs disagree after a crash?
+
 What would we like to happen after a server crashes?
-What is linearizability?
+
+What is linearizability? **[Dive into consistency models](https://github.com/JasonYuchen/notes/tree/master/consistency)**
+
 What should a client do if a Put or Get RPC times out? How about the server?
 
 **CASE STUDY: Raft (persistence, client behavior, snapshots)**
@@ -71,7 +81,10 @@ What should a client do if a Put or Get RPC times out? How about the server?
 
 ## Lecture 08 - Zookeeper
 
-Can replicas serve read-only client requests form their local state? If so, how about the consistency guarantees?
+Can replicas serve read-only client requests form their local state?
+
+If so, how about the consistency guarantees?
+
 Why is ZooKeeper useful despite loose consistency?
 
 **CASE STUDY: ZooKeeper**
@@ -82,6 +95,7 @@ Why is ZooKeeper useful despite loose consistency?
 ## Lecture 09 - More Replication: CRAQ
 
 What is Chain Replication (CR)? What is CRAQ?
+
 Why is CR attractive (vs Raft)? How about CRAQ?
 
 **CASE STUDY: CRAQ**
@@ -91,10 +105,20 @@ Why is CR attractive (vs Raft)? How about CRAQ?
 
 ## Lecture 10 - Cloud Replicated DB: Aurora
 
-- lecture notes
+What led to Aurora?
+
+Why Aurora is successful?
+
+What does a Aurora read/write look like? Quorum?
+
+**CASE STUDY: Aurora**
+
+- [lecture notes](10.Aurora.md)
 - [material notes](Aurora.md)
 
 ## Lecture 11 - Cache Consistency: Frangipani
+
+**CASE STUDY: Frangipani**
 
 - lecture notes
 - [material notes](Frangipani.md)
@@ -106,25 +130,35 @@ Why is CR attractive (vs Raft)? How about CRAQ?
 
 ## Lecture 13 - Spanner
 
+**CASE STUDY: Spanner**
+
 - lecture notes
 - material notes
 
 ## Lecture 14 - Optimistic Concurrency Control
+
+**CASE STUDY: FaRM**
 
 - lecture notes
 - material notes
 
 ## Lecture 15 - Big Data: Spark
 
+**CASE STUDY: Spark**
+
 - lecture notes
 - material notes
 
 ## Lecture 16 - Cache Consistency: Memcached at Facebook
 
+**CASE STUDY: Memcached**
+
 - lecture notes
 - material notes
 
 ## Lecture 17 - Cache Consistency: COPS
+
+**CASE STUDY: COPS**
 
 - lecture notes
 - material notes
@@ -136,10 +170,14 @@ Why is CR attractive (vs Raft)? How about CRAQ?
 
 ## Lecture 19 - Peer-to-peer: Bitcoin
 
+**CASE STUDY: Bitcoin**
+
 - lecture notes
 - material notes
 
 ## Lecture 20 - Blockstack
+
+**CASE STUDY: Blockstack**
 
 - lecture notes
 - material notes
