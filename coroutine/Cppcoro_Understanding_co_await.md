@@ -23,7 +23,7 @@ Coroutines定义了以下两种接口：
 
 假定`P`为**awaiting coroutine**的promise对象的类型，而`promise`为**current coroutine**的promise对象的左值引用
 
-若`P`有成员函数`await_transform`，则编译器会调用`promise.await_transform(<expr>)`来获得Awaitable的值`awaitable`，否则就会直接使用`<expr>`作为`awaitable`
+若`P`有成员函数`await_transform`（[参考此处](Cppcoro_Understanding_Promise.md#12-customising-the-behaviour-of-co_await)），则编译器会调用`promise.await_transform(<expr>)`来获得Awaitable的值`awaitable`，否则就会直接使用`<expr>`作为`awaitable`
 
 当该`awaitable`有可用的`operator co_await()`重载时，就会调用并获得Awaiter对象，否则`awaitable`就会被直接作为Awaiter
 
@@ -104,34 +104,44 @@ decltype(auto) get_awaiter(Awaitable&& awaitable)
 template<typename Promise>
 struct coroutine_handle;
 
+// 类型被抹除的coroutine_handle，允许代表任意的coroutine，但无法访问对应的promise对象
 template<>
 struct coroutine_handle<void>
 {
-bool done() const;
+  // 构造空的handle
+  constexpr coroutine_handle();
 
-// 立即恢复协程执行到遇到<return-to-callder-or-resumer>点再返回
-void resume();
+  // 判断是否为空的handle
+  constexpr explicit operator bool() const noexcept;
 
-// 析构协程帧并回收所有相关的资源，通常不应该调用
-void destroy();
+  // 判断是否在final_suspend点已经suspended
+  // 对于当前未suspended的协程调用是未定义行为
+  bool done() const;
 
-// 允许coroutine_handle与void*之间的转换，从而可以作为一个context传递给C-style API
-void* address() const;
-static coroutine_handle from_address(void* address);
+  // 立即恢复协程执行到遇到<return-to-callder-or-resumer>点再返回
+  void resume();
+
+  // 析构协程帧并回收所有相关的资源，通常不应该调用
+  void destroy();
+
+  // 允许coroutine_handle与void*之间的转换，从而可以作为一个context传递给C-style API
+  constexpr void* address() const;
+  static constexpr coroutine_handle from_address(void* address);
 };
 
-// 对于绝大部分Normally Awaitable类型来说，应该使用coroutine_handle<void>
+// 对于绝大部分Normally Awaitable类型来说，应该使用coroutine_handle<void>，带有已知的promise类型
 template<typename Promise>
 struct coroutine_handle : coroutine_handle<void>
 {
+  using coroutine_handle<>::coroutine_handle;
 
-// 返回协程的promise对象的引用，通常不应该调用
-Promise& promise() const;
+  // 返回协程的promise对象的引用，通常不应该调用
+  Promise& promise() const;
 
-// 通过promise对象来重建coroutine_handle
-static coroutine_handle from_promise(Promise& promise);
+  // 通过promise对象来重建coroutine_handle
+  static coroutine_handle from_promise(Promise& promise);
 
-static coroutine_handle from_address(void* address);
+  static constexpr coroutine_handle from_address(void* address);
 };
 ```
 
