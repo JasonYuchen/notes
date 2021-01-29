@@ -118,22 +118,24 @@ What does a Aurora read/write look like? Quorum?
 
 ## Lecture 11 - Cache Consistency: Frangipani
 
+cache coherence, distributed transaction, distributed crash recovery
+
 **CASE STUDY: Frangipani**
 
-- lecture notes
+- [lecture notes](11.Frangipani.md)
 - [material notes](Frangipani.md)
 
 ## Lecture 12 - Distributed Transactions
 
 - lecture notes
-- material notes
+- [material notes](6.033_Ch9.md)
 
 ## Lecture 13 - Spanner
 
 **CASE STUDY: Spanner**
 
 - lecture notes
-- material notes
+- [material notes](Spanner.md)
 
 ## Lecture 14 - Optimistic Concurrency Control
 
