@@ -92,3 +92,4 @@ Papers in mit6.824:
 - [Object Storage on CRAQ - High-throughput chain replication for read-mostly workloads](mit6.824/CRAQ_Chain_Replication.md) ATC '09
 - [Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases](mit6.824/Aurora.md) SIGMOD '17
 - [Frangipani: A Scalable Distributed File System](mit6.824/Frangipani.md) SOSP '97
+- [Spanner: Google's Globally Distributed Database](mit6.824/Spanner.md) TOCS '13
