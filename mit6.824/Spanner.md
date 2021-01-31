@@ -142,7 +142,7 @@ Spanner在每个Paxos组内，都由**leader来分配单调递增的timestamps**
 - $t_{safe}^{Paxos}$ 是每个Paxos状态机都有的一个安全时间
   代表当前**已经applied的最高Paxos write的timestamp**，因为Paxos状态机的write是顺序执行，且timestamp是单调递增的，因此不可能在早于 $t_{safe}^{Paxos}$ 的时间内出现写入，从而对早于此timestamp的读请求提供服务是安全的
 - $t_{safe}^{TM}$ 是每个事务管理器transaction manager都有的一个安全时间
-  - **若当前没有处于prepared状态的事务**（还未commit，处在2PC的中间）则 $t_{safe}^{TM}=\infty$
+  - **若当前没有处于prepared状态的事务**（prepared事务还未commit，处在2PC的中间）则 $t_{safe}^{TM}=\infty$
     由于依赖Paxos对transaction participants做到高可用，因此**coordinator slave会通过Paxos replication来获知coordinator leader事务管理器TM的 $t_{safe}^{TM}$**
   - **若当前有任何处于prepared状态的事务**，则pariticipant replica无法得知该事务是否已经commit，但是根据[读写事务timestamp分配的实现](#read-write-transactions)，replica可以知道该prepared事务timestamp的下限lowerbound
     对于任意一条事务 $T_i$，一个组`g`的participant leader分配给其prepare record一个timestamp $s_{i,g}^{prepare}$，根据2PC的流程，由**coordinator leader确保 $T_i$ 的commit timestamp一定晚于`g`内所有参与者的prepare timestamps**，即 $s_i\geqslant s_{i,g}^{prepare}$ ，从而对于`g`内的所有replicas上的所有prepared事务，$t_{safe}^{TM}=min_i(s_{i,g}^{prepare})-1$ ，因此对于read timestamp比所有prepared事务的所有prepare timestamps都要小时，一定能安全访问到已经commit事务的修改，不会读取到进行中事务的数据（此处假设所有timestamp对应的Paxos writes都已经成功，因为Paxos writes可能还在进行中，所以真正的 $t_{safe}$ 需要在Paxos和TM中取小者）
@@ -207,4 +207,54 @@ Spanner中会给schema-change事务分配一个**在未来的timestamp并注册�
 
 #### Refinements
 
+1. $t_{safe}^{TM}$
+    当前的 [$t_{safe}^{TM}$ 定义](#serving-reads-at-a-timestamp)存在弱点，当仅有一个prepared事务时，$t_{safe}$ 就会被限制，即需要满足 $t_{safe}=s^{prepare}-1$，即使与该事务不存在read冲突也受此限制
+
+    - **通过更细粒度的从`key ranges -> prepared-transaction timestamps`的映射来强化 $t_{safe}^{TM}$**
+    - 将映射存储在锁表lock table中，锁表自身有`key ranges -> lock metadata`信息
+    - 当有read请求到达时，只需要检查read涉及的`key ranges`所对应的`prepared-transaction timestamps`，而不需要满足当前的每一个prepared事务，即**key不冲突就无须限制**
+
+2. $LastTS()$
+    当前的 [$LastTS()$ 的定义](#snapshot-transactions)也存在类似的弱点，当某一条事务刚结束提交时，非冲突的快照事务也必须被分配一个满足该提交事务的timestamp，即 $s_{read}=LastTS()$ ，导致快照事务被不必要的延迟执行
+
+    - **通过更细粒度的从`key ranges -> committed-transaction timestamps`的映射来强化 $s{read}$**
+    - 将映射存储在锁表lock table中，锁表自身有`key ranges -> lock metadata`信息
+    - 当有快照事务到达时，只需要检查read涉及的`key ranges`所对应的`committed-transaction timestamps`，而不需要满足最近的committed事务，即**key不冲突就无须限制**
+
+3. $t_{safe}^{Paxos}$
+    当前的 [$t_{safe}^{Paxos}$ 的定义](#serving-reads-at-a-timestamp)存在一个弱点，当Paxos没有新的write时，$t_{safe}^{Paxos}$ 就无法更新，即当一个快照读要求timestamp为t且晚于当前Paxos组的最后写入时，就必须等待
+
+    - 通过**利用leader-lease区间的disjointness来放宽timestamp的限制**
+    - 每个Paxos始终有一个阈值threshold，当超过此阈值时就会发生Paxos write，即维护从`Paxos sequence number n -> minimum timestamps may be assigned to n+1`映射，可以从`MinNextTS(n)`立即计算出下一个timestamp，显然在此timestamp之前不可能发生新的write，从而read的要求在此timestamp之前的都可以得到服务
+    - **每当有新write被applied时，就可以更新$t_{safe}^{Paxos}=MinNextTS(n)-1$**
+    - 在leader-lease内，由于leader-lease自身的disjointness保证，leader可以简单的直接更新`MinNextTS()`
+    - 如果leader需要更新`MinNextTS()`超出了leader-lease，则leader必须首先更新leader-lease
+    - leader用于记录所分配的当前最大timestamp变量 $s_{max}$ 也会被更新到`MinNextTS()`以保证disjointness
+
 #### Paxos Leader-Lease Management
+
+最简单的维护leader-lease区间disjointness的方式就是leader发起一个同步的Paxos write请求包含了lease interval信息（类似Raft优化读中引入了lease，再通过定期发起write来更新lease）
+
+基于TrueTime API可以免除这些额外的Paxos writes：
+
+- 潜在的第`i`个leader保存从每个replica r收到的的lease vote的发起时间下限为 $v_{i,r}^{leader}=TT.now().earliest$ ，是在leader发出lease请求 $e_{i,r}^{send}$ 前计算的（**对应(3)式**）
+- 每个replica r都在 $e_{i,r}^{grant}$ 时刻grant lease，一定是在收到lease请求 $e_{i,r}^{receive}$ 后发生的，leader发送lease请求一定在replica收到lease请求之前（因果关系，**对应(4)式**）
+- 对每个replica r而言的租约lease的有效期到 $t_{i,r}^{end}=TT.now().latest+lease\_length$，是在收到lease请求 $e_{i,r}^{receive}$ 后计算的（**对应(5)式**）
+- 每个replica r都要保证直到 $TT.after(t_{i,r}^{end})==true$ 前只会投lease vote一次（**single-vote rule**，**对应(6)式**），将投出去vote会在发送前被记录到log中
+- 当第`i`个leader收到quorum时 $e_{i}^{quorum}$，一定是在每个replica r对应的grant vote时间之后（**对应(7)式**），随后才能计算出所拥有的lease区间 $lease_i=[TT.now().latest,min_r(v_{i,r}^{leader})+lease\_length]$（**对应(1),(8)式**），当leader上的lease已经过期时一定有 $TT.before(min_r(v_{i,r}^{leader})+lease\_length)==false$ 从而下一个leader可以安全获得新的lease满足disjointness
+
+第`i`个leader和第`i+1`个leader所拥有的quorum至少有一个replica重叠（majority rule，重叠的replica称为r0，**对应(2)式**）能够保证证明中的 $min_r()$ 有效，则disjointness证明如下：
+
+```math
+\begin{aligned}
+&(1)\ by\ definition:&lease_i.end&=min_r(v_{i,r}^{leader})+lease\_length\\
+&(2)\ min:&min_r(v_{i,r}^{leader})+lease\_length&\leqslant v_{i,r0}^{leader}+lease\_length\\
+&(3)\ by\ definition:&v_{i,r0}^{leader}+lease\_length&\leqslant t_{abs}(e_{i,r0}^{send})+lease\_length\\
+&(4)\ causality:&t_{abs}(e_{i,r0}^{send})+lease\_length&\leqslant t_{abs}(e_{i,r0}^{receive})+lease\_length\\
+&(5)\ by\ definition:&t_{abs}(e_{i,r0}^{receive})+lease\_length&\leqslant t_{i,r0}^{end}\\
+&(6)\ single-vote:&t_{i,r0}^{end}&<t_{abs}(e_{i+1,r0}^{grant})\\
+&(7)\ causality:&t_{abs}(e_{i+1,r0}^{grant})&\leqslant t_{abs}(e_{i+1}^{quorum})\\
+&(8)\ by\ definition:&t_{abs}(e_{i+1}^{quorum})&\leqslant lease_{i+1}.start\\
+&disjointness:&lease_i.end&<lease_{i+1}.start\\
+\end{aligned}
+```
