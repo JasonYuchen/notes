@@ -154,15 +154,56 @@ Spanner在每个Paxos组内，都由**leader来分配单调递增的timestamps**
 - **分配时间戳，$s_{read}$**
 - **快照读的方式在 $s_{read}$ 执行事务读**，快照读随后可以在任意replicas上进行
 
-一种简单的分配方式如 $s_{read}=TT.now().latest$ 也能确保读到最新的方式，原因与[前述讨论](#serving-reads-at-a-timestamp)一样，但可能会出现 $s_{safe}<s{read}$ ，此时Spanner必须等待直到满足要求才可以执行读，因此在timestamp分配时，通常会分配**尽可能早oldest但是也满足外部一致性**的一个时间戳，[详细方式见此](#snapshot-transactions)
+一种简单的分配方式如 $s_{read}=TT.now().latest$ 也能确保读到最新的方式，原因与[前述讨论](#serving-reads-at-a-timestamp)一样，但可能会出现 $s_{safe}<s_{read}$ ，此时Spanner必须等待直到满足要求才可以执行读，因此在timestamp分配时，通常会分配**尽可能早但是也满足外部一致性**的一个时间戳，[详细方式见此](#snapshot-transactions)
 
-### 2. 细节 Details `TODO`
+### 2. 细节 Details
 
 #### Read-Write Transactions
 
+Spanner对于还未commit的事务写入数据会缓存在client侧，并且由于事务读取实际上会返回相应的数据带有的timestamp，而uncommitted的写入还未被分配timestamp因此不会被读到
+
+在Read-Write事务内部的读**通过[wound-wait机制](https://stackoverflow.com/a/32794401/8311638)来避免死锁**，client对leader replica发起读请求，获取读锁，并读取最近的数据（随后会**持续发送心跳**直到事务结束来确保participant leader不会认为事务超时）
+
+> if **Timestamp(Tn) < Timestamp(Tk)**, then Tn forces Tk to be killed − that is Tn **wounds** Tk. Tk is restarted later with a random delay but with the same timestamp(k).
+> if **Timestamp(Tn) > Timestamp(Tk)**, then Tn is forced to **wait** until the resource is available.
+
+当client事务完成所有读写时，**写入已经被client本地全部缓存**，随后开始进行两阶段提交2PC：
+
+1. **client选择一个协调组coordinator group**并发送commit请求，随后写入的数据以及coordinator的身份就被发送给每一个participant leader，这种**由client发起并驱动的2PC**有利于减少数据的传输次数和coordinator的负担并提升性能，client可以基于策略综合选择coordinator group
+2. 事务参与者leader节点（non-coordinator-participant leader）首先会获得写锁，选择timestamp分配给prepare record（要保证timestamp disjointness），并通过Paxos进行复制这条prepare record，随后每个participant（Paxos里的follower）就会获知coordinator选择的prepare timestamp
+3. 事务协调者leader节点首先获得写锁，但是**跳过prepare阶段**，而是在收到所有事务参与者leader节点的prepare timestamp直接**选择commit timestamp代表整个事务**，并且满足以下不等式来确保disjointness
+
+   ```math
+   \begin{aligned}
+   timestamp_{commit}&\geqslant max(timestamp_{prepare})\\
+   timestamp_{commit}&>TT.now().latest\\
+   timestamp_{commit}&>max(timestamp_{previous\ transactions})
+   \end{aligned}
+   ```
+
+4. 事务协调者leader节点随后将commit record通过Paxos进行复制（或是在等待participant超时后abort）
+
+只有Paxos的leaders节点会获取锁（包括participant leader和coordinator leader），**锁的状态只会在事务prepare阶段进行Paxos log记录**，如果在prepare之前锁已经丢失（例如持有锁的leader发生切换、为了避免死锁采用的wound-wait导致事务被中断锁被释放）则participants就会直接放弃abort，Spanner保证一条p**repare/commit record只会在所有锁都持有时才会被Paxos log记录**，当出现leader切换时，**new leader在接受新事务请求前从日志中恢复prepared but uncommitted事务的锁状态**，从而避免新事务和未完成事务操作同一块数据
+
+**在协调者任意节点应用commit record之前**，由于协调者leader节点选择了参考 $TT.now().latest$ 的commit timestamp（见3中的不等式第二项），因此会**主动等待直到 $TT.after(s) == true$ ，见[commit wait](#assigning-timestamps-to-read-write-transactions)**，等待结束后，此时commit timestamp已经确保不会重叠，**此时协调者leader节点才会将commit timestamp发布**，即发送给所有participant leaders以及client，相应的participant leaders继续通过Paxos log这条事务的所有结果，对事务的commit timestamp达成共识，并释放所有锁
+
 #### Snapshot Transactions
 
+快照事务分配timestamp需要所有read涉及到的Paxos组之间协调，因此Spanner对每一个快照事务要求提供一个**scope**表达式来代表整个事务会读到的keys，对于standalone的查询会自动推断出scope；定义一个Paxos组内最近一条提交的事务的commit timestamp为 $LastTS()$
+
+- **如果scope的值可以由单个Paxos组服务**，则client就会直接向该组的leader发起快照事务，由该leader分配timestamp $s_{read}$ 并且执行读
+  - 对于单节点的读single-site read，若当前没有prepared事务，则直接 $s_{read}=LastTS()$ 会比采用 $TT.now()$ 性能更好并且保持了外部一致性，事务可以读到最近事务的修改
+- **如果scope的值需要由多个Paxos组服务**，可以有多种选择
+  - 通过每个Paxos组leaders之间通信并基于 $LastTS()$ 达成 $s_{read}$ 共识，非常复杂
+  - **跳过协调negotiation，直接采用 $s_{read}=TT.now().latest$**（可能需要等待安全时间更新），随后事务中所有读请求可以发送至任意replica都能读到足够新up-to-date的数据，较为简单（Spanner实际采用这种方法）
+
 #### Schema-Change Transactions
+
+由于变更schema直接涉及到了所有数据，因此常规的事务无法支持原子变更分布式多节点海量数据的schema，例如BigTable中仅支持单个数据中心的schema-change，并且期间会阻塞所有读写操作
+
+Spanner中会给schema-change事务分配一个**在未来的timestamp并注册为prepare record**，随后在所有涉及schema-change的节点进行处理，而同时期的所有读写操作（隐式依赖了schema）会与当前注册的schema-change prepare record timestamp进行同步，只要**对应的timestamp比schema-change timestamp要早的正常执行，要晚的就会阻塞**
+
+显然，只有提供了TrueTime API的情况下，**定义一个在未来执行的操作**才有意义
 
 #### Refinements
 
