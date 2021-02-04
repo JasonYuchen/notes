@@ -127,14 +127,24 @@ cache coherence, distributed transaction, distributed crash recovery
 
 ## Lecture 12 - Distributed Transactions
 
-- lecture notes
+What is ACID of a transaction?
+
+Why distributed transactions (concurrency control & atomic commit) ?
+
+consensus (e.g. Raft) vs. distributed transactions (e.g. 2PC)
+
+- [lecture notes](12.Distributed_Transactions.md)
 - [material notes](6.033_Ch9.md)
 
 ## Lecture 13 - Spanner
 
+Two-phase commit over Paxos - wide-area synchronous replication
+
+Synchronized time (TrueTime API) for fast read-only transactions
+
 **CASE STUDY: Spanner**
 
-- lecture notes
+- [lecture notes](13.Spanner.md)
 - [material notes](Spanner.md)
 
 ## Lecture 14 - Optimistic Concurrency Control

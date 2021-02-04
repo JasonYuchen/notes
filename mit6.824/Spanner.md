@@ -15,7 +15,7 @@ Spanner是一种可扩展scalable、全球分布globally的数据库，使用**�
   - 副本数量来控制可用性availability、持久性durability和读性能read performance
 
   整个过程中数据都会被自动动态透明的在数据中心和节点间迁移进行负载均衡
-- 提供**外部一致性读写externally consistenty** reads/writes（即线性一致性linearizability）
+- 提供**外部一致性读写externally consistenty** reads/writes（即**强一致性strong consistency、线性一致性linearizability**）
 - 基于时间戳的**全球一致性读 globally consistent** reads
 
 基于这些特性，Spanner上允许在**全球范围内**的存在进行中事务时的一致性备份、一致性MapReduce、原子模式升级atomic schema updates，核心原因在于Spanner**基于GPS/原子钟提供的[TrueTime API](#真实时间-truetime) timestamps，由**提交时间戳来串行化事务的顺序**
@@ -183,7 +183,7 @@ Spanner对于还未commit的事务写入数据会缓存在client侧，并且由�
 
 4. 事务协调者leader节点随后将commit record通过Paxos进行复制（或是在等待participant超时后abort）
 
-只有Paxos的leaders节点会获取锁（包括participant leader和coordinator leader），**锁的状态只会在事务prepare阶段进行Paxos log记录**，如果在prepare之前锁已经丢失（例如持有锁的leader发生切换、为了避免死锁采用的wound-wait导致事务被中断锁被释放）则participants就会直接放弃abort，Spanner保证一条p**repare/commit record只会在所有锁都持有时才会被Paxos log记录**，当出现leader切换时，**new leader在接受新事务请求前从日志中恢复prepared but uncommitted事务的锁状态**，从而避免新事务和未完成事务操作同一块数据
+只有Paxos的leaders节点会获取锁（包括participant leader和coordinator leader），**锁的状态只会在事务prepare阶段进行Paxos log记录**，如果在prepare之前锁已经丢失（例如持有锁的leader发生切换、为了避免死锁采用的wound-wait导致事务被中断锁被释放）则participants就会直接放弃abort，Spanner保证一条**prepare/commit record只会在所有锁都持有时才会被Paxos log记录**，当出现leader切换时，**new leader在接受新事务请求前从日志中恢复prepared but uncommitted事务的锁状态**，从而避免新事务和未完成事务操作同一块数据
 
 **在协调者任意节点应用commit record之前**，由于协调者leader节点选择了参考 $TT.now().latest$ 的commit timestamp（见3中的不等式第二项），因此会**主动等待直到 $TT.after(s) == true$ ，见[commit wait](#assigning-timestamps-to-read-write-transactions)**，等待结束后，此时commit timestamp已经确保不会重叠，**此时协调者leader节点才会将commit timestamp发布**，即发送给所有participant leaders以及client，相应的participant leaders继续通过Paxos log这条事务的所有结果，对事务的commit timestamp达成共识，并释放所有锁
 
