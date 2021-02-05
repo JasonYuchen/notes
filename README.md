@@ -93,3 +93,4 @@ Papers in mit6.824:
 - [Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases](mit6.824/Aurora.md) SIGMOD '17
 - [Frangipani: A Scalable Distributed File System](mit6.824/Frangipani.md) SOSP '97
 - [Spanner: Google's Globally Distributed Database](mit6.824/Spanner.md) TOCS '13
+- [No compromises: distributed transactions with consistency, availability, and performance](mit6.824/FaRM.md) SOSP '15
