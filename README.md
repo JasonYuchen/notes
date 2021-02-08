@@ -94,3 +94,4 @@ Papers in mit6.824:
 - [Frangipani: A Scalable Distributed File System](mit6.824/Frangipani.md) SOSP '97
 - [Spanner: Google's Globally Distributed Database](mit6.824/Spanner.md) TOCS '13
 - [No compromises: distributed transactions with consistency, availability, and performance](mit6.824/FaRM.md) SOSP '15
+- [Resilient Distributed Datasets: A Fault-Tolerant Abstraction for In-Memory Cluster Computing](mit6.824/Spark.md) NSDI '12
