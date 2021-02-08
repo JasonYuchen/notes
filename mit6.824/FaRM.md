@@ -74,32 +74,32 @@ FaRM中，**事务日志transacton logs和数据data都会通过primary-backup�
 在执行事务时，coordinator首先采用单侧RDMA**从primary上读取对象**（如果对象在本地就直接访问内存），并将**写入缓存在本地，同时也会记录对象的地址和版本信息**，当执行结束时就按照如下流程进行事务提交：
 
 1. **Lock**
-   协调者在每个**write对象所在的primary**上写入一条LOCK日志，包含版本、write的新数据和所有本次write涉及到regions列表
+   协调者在每个**write对象所在的primary**上写入一条`LOCK`日志，包含版本、write的新数据和所有本次write涉及到regions列表
 
-   Primary通过LOCK日志，对指定版本的对象进行加锁，并将是否全部成功汇报给协调者，若**对象被其他事务加锁、或是先前已经read的对象此时版本出现了变化（乐观锁）**就会失败协调者就会写入ABORT日志给所有primary并返回错误给应用程序
+   Primary通过`LOCK`日志，对指定版本的对象进行加锁，并将是否全部成功汇报给协调者，若**对象被其他事务加锁、或是先前已经read的对象此时版本出现了变化**（乐观锁）就会失败协调者就会写入`ABORT`日志给所有primary并返回错误给应用程序
 2. **Validate**
-   除了加锁时的确认，在全部加锁成功后，协调者还会额外对全部**此前read-only的对象进行版本确认**（直接RDMA读primaries），如果任意对象版本不符，事务就会失败
+   除了加锁时的确认，在全部加锁成功后，协调者还会额外对全部**此前read-only的对象进行版本确认**（直接RDMA读primaries），如果任意对象版本不符（事务中间有其他事务commit）或是发现正被加锁（可能冲突的事务正在运行），事务就会失败
 3. **Commit backup**
-   协调者在每个涉及的backup上写入一条COMMIT-BACKUP日志并等待所有NICs确认，COMMIT-BACKUP与LOCK携带数据相同
+   协调者在每个涉及的backup上写入一条`COMMIT-BACKUP`日志并等待所有NICs确认，`COMMIT-BACKUP`与`LOCK`携带数据相同
 4. **Commit primary**
-   COMMIT-BACKUP都确认后，协调者在每个涉及的primary上写入COMMIT-PRIMARY日志并等待NIC确认，仅需一个primary的NIC确认就可以回复应用层，所有primaries在处理时都进行对象数据更新、版本号增加释放锁
+   `COMMIT-BACKUP`都确认后，协调者在每个涉及的primary上写入`COMMIT-PRIMARY`日志并等待NIC确认，仅需一个primary的NIC确认就可以回复应用层，所有primaries在处理时都进行对象数据更新、版本号增加释放锁
 5. **Truncate**
-   primaries和backups都一致保持日志记录直到被截断，**协调者会在收到所有primaries的确认后懒惰进行primaries和backups日志的截断**，primaries在处理COMMIT-PRIMARY时即进行数据更新等操作，而**backups在日志截断时才会进行数据更新等操作**
+   primaries和backups都一致保持日志记录直到被截断，**协调者会在收到所有primaries的确认后懒惰进行primaries和backups日志的截断**，primaries在处理`COMMIT-PRIMARY`时即进行数据更新等操作，而**backups在日志截断时才会进行数据更新等操作**
 
 |Log Record Type|Contents|
 |:-|:-|
-|LOCK|TID, IDs of all regions with objects written by the transaction, and addresses, versions, and values of all objects written by the transaction that the destination is primary for|
-|COMMIT-BACKUP|same as LOCK|
-|COMMIT-PRIMARY|TID to commit|
-|ABORT|TID to abort|
-|TRUNCATE|low bound TID for non-truncated transactions and TIDs to truncate|
+|`LOCK`|TID, IDs of all regions with objects written by the transaction, and addresses, versions, and values of all objects written by the transaction that the destination is primary for|
+|`COMMIT-BACKUP`|same as `LOCK`|
+|`COMMIT-PRIMAR`Y|TID to commit|
+|`ABORT`|TID to abort|
+|`TRUNCATE`|low bound TID for non-truncated transactions and TIDs to truncate|
 
 ### 2. 正确性 Correctness
 
 已提交的读写事务的序列化点就是commit过程中**所有锁被成功获得的时刻**，已提交的只读事务的序列化点就是执行过程中的**最后一次read的时刻**，从而所有事务都可以根据上述两个时间点进行序列化（类似Spanner根据commit timestamp进行事务的序列化），没有错误发生时事务可以认为是**在相应的序列化点被原子执行**的，而序列化点是全局有序的，并且每个**序列化点一定在对应事务的开始invocation和完成completion中间的某一刻**，即满足[线性一致性](https://github.com/JasonYuchen/notes/blob/master/consistency/Strong_consistency_models.md#%E7%BA%BF%E6%80%A7%E4%B8%80%E8%87%B4%E6%80%A7-linearizability)
 
-- **需要等待所有COMMIT_BACKUP的ACK**：假如对region r的某个backup b的ACK返回之前就继续执行后续的事务，后续一旦除了backup b以外的replicas出错就有可能会丢失数据，因为primary上已经有了数据（Lock阶段发送），但backup b可能未收到COMMIT_BACKUP，从而region r丢失了事务的修改
-- **只需要等待一个COMMIT_PRIMARY的ACK**：由于日志和数据已经到达所有replicas，但是事务commit的消息（隐含Read Validate成功）必须至少有一个primary进行存储，否则如果协调者宕机，只有Lock的状态能够在故障后维持，而Read Validate是否成功未知从而事务必须回滚，因此在返回应用程序前至少需要等待一个COMMIT_PRIMARY的ACK
+- **需要等待所有`COMMIT_BACKUP`的ACK**：假如对region r的某个backup b的ACK返回之前就继续执行后续的事务，后续一旦**除了backup b以外的replicas出错**就有可能会丢失数据，因为primary上已经有了数据（Lock阶段发送），但**backup b可能未收到`COMMIT_BACKUP`，从而region r丢失了事务的修改**
+- **只需要等待一个`COMMIT_PRIMARY`的ACK**：由于日志和数据已经到达所有replicas，但是事务commit的消息（**隐含Read Validate成功**）必须至少有一个primary进行存储，否则如果协调者宕机，只有Lock的状态能够在故障后维持，而Read Validate是否成功未知从而事务必须回滚，因此在返回应用程序前至少需要等待一个`COMMIT_PRIMARY`的ACK
 
 ### 3. 性能 Performance
 
@@ -141,11 +141,11 @@ FaRM中除了`CM`以外的每一台服务器都在`CM`上持有一个租约lease
 4. **Remap regions**
    `CM`对失败节点上存储的regions进行再映射，分配到其他节点上，从而保证副本数恢复到`f+1`，对于失败节点存储的primary，就会选择一个backup升级到primary
 5. **Send new configuration**
-   再映射结束后，`CM`就会发送NEW-CONFIG消息给所有当前成员节点，如果`CM`发生了变化，这条消息也会重置lease
+   再映射结束后，`CM`就会发送`NEW-CONFIG`消息给所有当前成员节点，如果`CM`发生了变化，这条消息也会重置lease
 6. **Apply new configuration**
-   当节点收到的NEW-CONFIG消息的序列号比自身拥有的更大时，就会进行配置更新应用NEW-CONFIG，此刻开始，节点就不会再对新配置外的成员发起RDMA请求也不会响应从配置外成员收到的RDMA回复，同时也会阻塞所有clients的请求，节点也会回复NEW-CONFIG-ACK给`CM`
+   当节点收到的`NEW-CONFIG`消息的序列号比自身拥有的更大时，就会进行配置更新应用`NEW-CONFIG`，此刻开始，节点就不会再对新配置外的成员发起RDMA请求也不会响应从配置外成员收到的RDMA回复，同时也会阻塞所有clients的请求，节点也会回复`NEW-CONFIG-ACK`给`CM`
 7. **Commit new configuration**
-   `CM`收到所有新配置下成员的NEW-CONFIG-ACK后，等待直到保证所有非新配置成员的lease过期，随后发送NEW-CONFIG-COMMIT给所有新配置成员对配置变更进行提交，此刻开始集群恢复响应clients的请求
+   `CM`收到所有新配置下成员的`NEW-CONFIG-ACK`后，等待直到保证所有非新配置成员的lease过期，随后发送`NEW-CONFIG-COMMIT`给所有新配置成员对配置变更进行提交，此刻开始集群恢复响应clients的请求
 
 ### 3. 事务状态恢复 Transaction state recovery
 
@@ -158,24 +158,24 @@ FaRM中除了`CM`以外的每一台服务器都在`CM`上持有一个租约lease
   1. **Block access to recovering regions**
     若出现backup需要被提升为primary，则所有对该region都访问都会被阻塞，直到所有事务恢复并且新primary能反映最近的事务修改（直到第4步恢复所有事务的锁状态）
   2. **Drain logs**
-    由于事务执行时COMMIT-BACKUP和COMMIT-PRIMARY都是由NIC进行直接ACK的，因此无法通过判断configuration是否最新进行选择性的拒绝，并且协调者等待相应的回复来使得事务继续执行因此不能总是拒绝，FaRM通过Drain logs来处理所有logs：**在收到NEW-CONFIG-COMMIT时再处理所有logs**，此时会首先记录相应configuration ID作为`LastDrained`，从而后续处理logs时会拒绝事务唯一标识内configuration ID小于等于所记录`LastDrained`的logs
+    由于事务执行时`COMMIT-BACKUP`和`COMMIT-PRIMARY`都是由NIC进行直接ACK的，因此无法通过判断configuration是否最新进行选择性的拒绝，并且协调者等待相应的回复来使得事务继续执行因此不能总是拒绝，FaRM通过Drain logs来处理所有logs：**在收到`NEW-CONFIG-COMMIT`时再处理所有logs**，此时会首先记录相应configuration ID作为`LastDrained`，从而后续处理logs时会拒绝事务唯一标识内configuration ID小于等于所记录`LastDrained`的logs
   3. **Find recovering transactions**
     commit阶段跨过了成员变更的事务需要恢复，相应的事务修改可能只完成了一部分
   4. **Lock recovery**
-    每个region的primary replica会一直等到drain logs完成并且从所有backup replicas收到了NEED-RECOVERY消息，从而可以建立完整的影响此region的需要恢复事务的集合，随后根据恢复事务涉及的数据进行加锁
+    每个region的primary replica会一直等到drain logs完成并且从所有backup replicas收到了`NEED-RECOVERY`消息，从而可以建立完整的影响此region的需要恢复事务的集合，随后根据恢复事务涉及的数据进行加锁
   5. **Replicate log records**
-    每个region的primary relica会向所有backup replicas发送REPLICATE-TX-STATE对backup缺失的log records进行复制备份
+    每个region的primary relica会向所有backup replicas发送`REPLICATE-TX-STATE`对backup缺失的log records进行复制备份
   6. **Vote**
-    每个恢复事务的协调者需要根据涉及的每个region的primary replica的结论最终决定commit/abort该事务，每个region的primary则基于所有replicas的状态回复RECOVERY-VOTE，可能的结论有：
-      - commit-primary：任意replica有COMMIT-PRIMARY或COMMIT-RECOVERY
-      - commit-backup：如果不满足commit-primary，但是任意replica有COMMIT-BACKUP并且没有ABORT-RECOVERY
-      - lock：如果不满足commit-primary以及commit-backup，但是任意replica有LOCK record并且没有ABORT-RECOVERY
-      - truncated：如果该事务已经被截断，从而没有任何log records
-      - unknown：没有被截断也没有任何log records
+    每个恢复事务的协调者需要根据涉及的每个region的primary replica的结论最终决定commit/abort该事务，每个region的primary则基于所有replicas的状态回复`RECOVERY-VOTE`，可能的结论有：
+      - **commit-primary**：任意replica有`COMMIT-PRIMARY`或`COMMIT-RECOVERY`
+      - **commit-backup**：如果不满足commit-primary，但是任意replica有`COMMIT-BACKUP`并且没有`ABORT-RECOVERY`
+      - **lock**：如果不满足commit-primary以及commit-backup，但是任意replica有`LOCK` record并且没有`ABORT-RECOVERY`
+      - **truncated**：如果该事务已经被截断，从而没有任何log records
+      - **unknown**：没有被截断也没有任何log records
   7. **Decide**
     事务协调者若收到一个commit-primary就可以直接进行commit，否则需要等待收到所有结果；若所有结果内至少有一个commit-backup并且其他结果都不是unkown则也可以进行commit；否则只能abort
 
-    随后协调者将结论COMMIT-RECOVERY/ABORT-RECOVERY发送给所有事务参与者的所有replicas，消息包含configuration ID和transaction ID，并且在收到replicas确认后再发送TRUNCATE-RECOVERY消息
+    随后协调者将结论`COMMIT-RECOVERY`/`ABORT-RECOVERY`发送给所有事务参与者的所有replicas，消息包含configuration ID和transaction ID，并且在收到replicas确认后再发送`TRUNCATE-RECOVERY`消息
 
   `TODO: add message table here`
 
@@ -186,6 +186,6 @@ FaRM中除了`CM`以外的每一台服务器都在`CM`上持有一个租约lease
 
 ### 4. 数据恢复 Recovering data
 
-为了避免对lock recovery阶段造成影响，FaRM将**数据恢复（维持`f`个backup replicas）阶段推迟到所有replicas都已经就绪时**（当一个replica就绪时会发送REGIONS-ACTIVE给`CM`）
+为了避免对lock recovery阶段造成影响，FaRM将**数据恢复（维持`f`个backup replicas）阶段推迟到所有replicas都已经就绪时**（当一个replica就绪时会发送`REGIONS-ACTIVE`给`CM`）
 
-当`CM`收到所有就绪信息时，就会发送ALL-REGIONS-ACTIVE给所有节点，此时就会开始进行数据恢复，将replicas的数量维持在`f`，恢复时会将一块**新的region分割为数个区域，并行从primary replica上获取数据**
+当`CM`收到所有就绪信息时，就会发送`ALL-REGIONS-ACTIVE`给所有节点，此时就会开始进行数据恢复，将replicas的数量维持在`f`，恢复时会将一块**新的region分割为数个区域，并行从primary replica上获取数据**

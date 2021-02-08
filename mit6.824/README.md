@@ -149,17 +149,23 @@ Synchronized time (TrueTime API) for fast read-only transactions
 
 ## Lecture 14 - Optimistic Concurrency Control
 
+How does FaRM differ from Spanner? Both employ transactions + replication + sharding
+
+What is RDMA? Why uses RDMA?
+
 **CASE STUDY: FaRM**
 
-- lecture notes
-- material notes
+- [lecture notes](14.Optimistic_Concurrency_Control.md)
+- [material notes](FaRM.md)
 
 ## Lecture 15 - Big Data: Spark
 
+
+
 **CASE STUDY: Spark**
 
-- lecture notes
-- material notes
+- [lecture notes](15.Big_Data_Spark.md)
+- [material notes](Spark.md)
 
 ## Lecture 16 - Cache Consistency: Memcached at Facebook
 
