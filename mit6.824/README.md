@@ -160,7 +160,9 @@ What is RDMA? Why uses RDMA?
 
 ## Lecture 15 - Big Data: Spark
 
+Generalizes MapReduce into dataflow
 
+Use lineage to generate execution plan (DAG), pipeline, multi-stage
 
 **CASE STUDY: Spark**
 
@@ -169,10 +171,16 @@ What is RDMA? Why uses RDMA?
 
 ## Lecture 16 - Cache Consistency: Memcached at Facebook
 
+Cautionary tale about not taking consistency seriously
+
+Impressive story of super high capacity from mostly-off-the-shelf software
+
+Fundamental struggle between performance and consistency
+
 **CASE STUDY: Memcached**
 
-- lecture notes
-- material notes
+- [lecture notes](16.Memcached.md)
+- [material notes](Memcached_FB.md)
 
 ## Lecture 17 - Cache Consistency: COPS
 
