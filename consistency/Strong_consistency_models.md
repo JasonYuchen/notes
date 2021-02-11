@@ -41,6 +41,8 @@
 
 > Each operation appears to take effect atomically at some point between its invocation and completion
 
+所谓的 *some point* 就是指**可串行化点serialization point**
+
 注意上述要求都是**从外界视角来看**的，系统本身是否真正原子完成操作等实现并不是考虑的点
 
 ![5](images/short5.png)
