@@ -182,12 +182,18 @@ Fundamental struggle between performance and consistency
 - [lecture notes](16.Memcached.md)
 - [material notes](Memcached_FB.md)
 
-## Lecture 17 - Cache Consistency: COPS
+## Lecture 17 - Causal Consistency: COPS
+
+What consistency we can achieve when we need Availability, low Latency, Partition-tolerance, high Scalability ?
+
+Causal consistency with convergent conflict handling, a.k.a. Causal+ consistency
+
+Another geo-distribution-oriented system (Spanner, Memcache)
 
 **CASE STUDY: COPS**
 
-- lecture notes
-- material notes
+- [lecture notes](17.Causal_Consistency.md)
+- [material notes](COPS.md)
 
 ## Lecture 18 - Fork Consistency: Certificate Transparency
 
