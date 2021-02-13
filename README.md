@@ -95,3 +95,5 @@ Papers in mit6.824:
 - [Spanner: Google's Globally Distributed Database](mit6.824/Spanner.md) TOCS '13
 - [No compromises: distributed transactions with consistency, availability, and performance](mit6.824/FaRM.md) SOSP '15
 - [Resilient Distributed Datasets: A Fault-Tolerant Abstraction for In-Memory Cluster Computing](mit6.824/Spark.md) NSDI '12
+- [Scaling Memcache at Facebook](mit6.824/Memcached_FB.md) NSDI '13
+- [Don't Settle for Eventual: Scalable Causal Consistency for Wide-Area Storage with COPS](mit6.824/COPS.md) SOSP '11
