@@ -197,24 +197,29 @@ Another geo-distribution-oriented system (Spanner, Memcache)
 
 ## Lecture 18 - Fork Consistency: Certificate Transparency
 
-- lecture notes
-- material notes
+What if there's no universally-trusted authority to run an open system?
+
+A block-chain-like design built out of mutually suspicious pieces ensures all parties see the same information
+
+**CASE STUDY: Certificate Transparency**
+
+- [lecture notes](18.Fork_Consistency.md)
+- [material notes](Certificate_Transparency.md)
 
 ## Lecture 19 - Peer-to-peer: Bitcoin
 
+More distributed than most systems -- decentralized, peer-to-peer
+
+The agreement scheme is new and very interesting -- Proof-of-Work
+
 **CASE STUDY: Bitcoin**
 
-- lecture notes
-- material notes
+- [lecture notes](19.P2P.md)
+- [material notes](Bitcoin.md)
 
 ## Lecture 20 - Blockstack
 
 **CASE STUDY: Blockstack**
-
-- lecture notes
-- material notes
-
-## Lecture 21 - Project demos
 
 - lecture notes
 - material notes
