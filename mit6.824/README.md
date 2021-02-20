@@ -219,10 +219,14 @@ The agreement scheme is new and very interesting -- Proof-of-Work
 
 ## Lecture 20 - Blockstack
 
+A non-crypto-currency use of a blockchain -- a naming system
+
+How might decentralized applications work
+
 **CASE STUDY: Blockstack**
 
-- lecture notes
-- material notes
+- [lecture notes](20.Blockstack.md)
+- [material notes](Blockstack.md)
 
 ## Project - rafter (inprogress)
 
