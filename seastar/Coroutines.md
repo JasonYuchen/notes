@@ -59,16 +59,21 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
 
     ```c++
     // 1. awaiter.await_ready
-    bool await_ready() const noexcept {
-        // 由于定义在<seastar/core/preempt.hh>中的need_preempt总是返回true
-        // 因此await_ready也总是返回false，此时必然进入协程的方式
+    bool awaiter::await_ready() const noexcept {
+        // 定义在<seastar/core/preempt.hh>中的need_preempt用来判断是否抢占并将
+        // 控制权交还给reactor引擎，原因见后续分析
+        // 当不需要抢占且已经就绪时，不会进入协程流程而是直接返回结果
         return _future.available() && !need_preempt();
     }
+    
+    // 2a. awaiter.await_resume
+    // 协程的结果就是从就绪的future中获取
+    void awaiter::await_resume() { _future.get(); }
 
-    // 2. awaiter.await_suspend
+    // 2b. awaiter.await_suspend
     // 返回void的await_suspend总是将执行流交给caller/resumer，这里交给了caller，即reactor::run
     template<typename U>
-    void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
+    void awaiter::await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
         // 此时由于future已经完成，因此这里_future.available()返回true
         if (!_future.available()) {
             _future.set_coroutine(hndl.promise());
@@ -85,8 +90,7 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
 3. 返回reactor引擎的执行流后，这个future对应的task最终在`reactor::run_tasks(task_queue &tq)`被实际执行：`engine().run() -> run_some_tasks() -> run_tasks`
 
     ```C++
-    void
-    reactor::run_tasks(task_queue& tq) {
+    void reactor::run_tasks(task_queue& tq) {
         // ...
         auto tsk = tasks.front();
         tasks.pop_front();
@@ -99,7 +103,7 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
 
     // 回顾seastar定义的协程promise类型（coroutine_traits_base::promise_type）
     // 继承了seastar::task并且实现了run_and_dispose接口
-    virtual void run_and_dispose() noexcept override {
+    virtual void coroutine_traits_base::promise_type::run_and_dispose() noexcept override {
         // 通过协程的from_promise从promise对象即自身重新获得了协程的handler
         // 通过handle.resume()直接继续协程的运行
         auto handle = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<promise_type>::from_promise(*this);
@@ -107,7 +111,9 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
     }
     ```
 
-    从执行流程来看，似乎已经ready的`future`并没有通过`await_ready`返回`true`来跳过协程的处理直接继续执行，而是依然通过reactor引擎来处理，为什么？
+    从执行流程来看，似乎已经ready的`future`如果在`need_preempt() == true`时就会通过reactor引擎来处理，为什么？
+
+    假如有大量的`future`都是就绪状态并且连续被处理，此时在reactor队列中的其他事件、以及其他需要poll的事件就会面临**饥饿**，因此[为了避免饥饿](https://github.com/scylladb/seastar/blob/master/doc/tutorial.md#ready-futures)，当连续执行一定数量的就绪`future`后就会被reactor引擎抢占执行权
 
 #### 2. 当这个`future`对象尚未完成时
 
@@ -128,7 +134,7 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
 
     ```c++
     template <typename... A>
-    void set_value(A&&... a) noexcept {
+    void promise_base_with_type::set_value(A&&... a) noexcept {
         if (auto *s = get_state()) {
             s->set(std::forward<A>(a)...);
             make_ready<urgent::no>(); // <- 发起恢复执行协程
@@ -149,6 +155,127 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
     ```
 
 4. 调度后最终在`reactor::run_tasks`中执行了`task::run_and_dispose -> handle::resume`，协程恢复执行
+
+### `.then()`
+
+seastar中的`future`可以通过`.then(func)`的方式要求在该`future`就绪时将其结果传递给`func`从而实现串联执行的语法，例如：
+
+```C++
+seastar::future<int> slow() {
+    using namespace std::chrono_literals;
+    return seastar::sleep(100ms).then([] { return 3; });
+}
+
+seastar::future<> f() {
+    return slow().then([] (int val) {
+        std::cout << "Got " << val << "\n"; // will output 3
+    });
+}
+```
+
+seastar底层通过reactor引擎来执行tasks，那么`.then()`的串联执行是如何实现的？从源码（略去一些注释和代码）来看：
+
+1. `future::then`在一些包装后，实际调用了`future::then_impl`如下，分当前`future`就绪与否分别处理
+
+    ```c++
+    template <typename Func, typename Result = futurize_t<internal::future_result_t<Func, T SEASTAR_ELLIPSIS>>>
+    Result future::then_impl(Func&& func) noexcept {
+        using futurator = futurize<internal::future_result_t<Func, T SEASTAR_ELLIPSIS>>;
+
+        // 对于已经有结果fail/available的对象，直接处理而不是等待reactor执行
+        if (failed()) {
+            return futurator::make_exception_future(static_cast<future_state_base&&>(get_available_state_ref()));
+        } else if (available()) {
+            return futurator::invoke(std::forward<Func>(func), get_available_state_ref().take_value());
+        }
+
+        // 对于还未就绪的对象，将下一个调用的函数串联上
+        return then_impl_nrvo<Func, Result>(std::forward<Func>(func));
+    }
+    ```
+
+2. 在`future::then_impl_nrvo`中会根据`.then(func)`的传入`func`其返回类型构造一个新的`future`来返回
+
+    ```C++
+    template <typename Func, typename Result>
+    Result future::then_impl_nrvo(Func&& func) noexcept {
+        // 构造新的future对象
+        using futurator = futurize<internal::future_result_t<Func, T SEASTAR_ELLIPSIS>>;
+        typename futurator::type fut(future_for_get_promise_marker{});
+        using pr_type = decltype(fut.get_promise());
+
+        // schedule中的第二个参数就是当前future就绪时会调用的新函数
+        // 而第三个参数是对第二个参数的包装，从而能满足前一个调用出现异常时不在链式调用下一个
+        // 第三个lambda作为wrapper，会在第4步的continuation::run_and_dispose()被调用
+        schedule(fut.get_promise(), std::move(func), [](pr_type&& pr, Func& func, future_state&& state) {
+            if (state.failed()) {
+                pr.set_exception(static_cast<future_state_base&&>(std::move(state)));
+            } else {
+                futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
+                    return internal::future_invoke(func, std::move(state).get_value());
+                });
+            }
+        });
+        return fut;
+    }
+    ```
+
+3. 在`future::schedule`中首先使用`continuation`包装了下一个运行的函数`wrapper`，随后在`future_base::schedule`中将**当前`future`对应的`promise`对象的`_state/_task`更新为下一个函数的包装**，从而能够当前`future`就绪时（即对应的`promise::set_value`被调用）直接调度对应的`continuation` —— **链式关系**
+
+    ```C++
+    template <typename Pr, typename Func, typename Wrapper>
+    void future::schedule(Pr&& pr, Func&& func, Wrapper&& wrapper) noexcept {
+        memory::scoped_critical_alloc_section _;
+        auto tws = new continuation<Pr, Func, Wrapper, T SEASTAR_ELLIPSIS>(std::move(pr), std::move(func), std::move(wrapper));
+        schedule(tws);
+        _state._u.st = future_state_base::state::invalid;
+    }
+
+    void future::schedule(continuation_base<T SEASTAR_ELLIPSIS>* tws) noexcept {
+        future_base::schedule(tws, &tws->_state);
+    }
+
+    void future_base::schedule(task* tws, future_state_base* state) noexcept {
+        promise_base* p = detach_promise();
+        p->_state = state;
+        p->_task = tws;
+    }
+    ```
+
+4. 与[此处](#2-当这个future对象尚未完成时)中的第3步相同，在链式关系的前一个任务完成时就会执行`.then(func)`传入的函数
+
+    ```c++
+    template <typename... A>
+    void promise_base_with_type::set_value(A&&... a) noexcept {
+        if (auto *s = get_state()) {
+            s->set(std::forward<A>(a)...);
+            make_ready<urgent::no>(); // <- 发起执行`.then(func)`的func
+        }
+    }
+
+    template <promise_base::urgent Urgent>
+    void promise_base::make_ready() noexcept {
+        if (_task) {
+            // 回顾future对象已经完成时的执行流中，执行schedule后的行为
+            if (Urgent == urgent::yes) {
+                ::seastar::schedule_urgent(std::exchange(_task, nullptr));
+            } else {
+                ::seastar::schedule(std::exchange(_task, nullptr));
+            }
+        }
+    }
+
+    virtual void continuation::run_and_dispose() noexcept override {
+        try {
+            // 在第3步中对func的包装wrapper此时被调用
+            _wrapper(std::move(this->_pr), _func, std::move(this->_state));
+        } catch (...) {
+            this->_pr.set_to_current_exception();
+        }
+        // 在第3步中new的continuation在这里被回收
+        delete this;
+    }
+    ```
 
 ## 异步执行的任务
 
