@@ -28,6 +28,8 @@ Diego Ongaro: Consensus - bridging theory and practice
 
 Abraham Silberschatz: Operating System Concept
 
+[here](https://github.com/JasonYuchen/notes/tree/master/os)
+
 ## network
 
 James F. Kurose: Computer Networking A Top Down Approach
@@ -51,11 +53,11 @@ Heidi Howard: Distributed Consensus Revised
 Anthony Williams: C++ Concurrency In Action
 Brian Goetz: Java Concurrency in Practice
 
-## cs186
+## cmu 15-445
 
-[Introduction to Database Systems](https://cs186berkeley.net/) is a course for berkeley computer science students
+[Database Systems](https://15445.courses.cs.cmu.edu/fall2020/) is a course for cmu computer science students
 
-[here](https://github.com/JasonYuchen/notes/tree/master/cs186)
+[here](https://github.com/JasonYuchen/notes/tree/master/cmu15.445)
 
 ## ds
 
