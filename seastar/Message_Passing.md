@@ -2,19 +2,22 @@
 
 ## Shared-nothing设计
 
-`TODO`
+当需要跨核同步时，采用锁可能会导致竞争和等待，浪费CPU的时钟周期，即使采用原子变量，在竞争激烈时一次原子变量修改也会导致微秒级的耗时（普通变量仅需纳秒级耗时），参考[bvar的设计原理](https://github.com/apache/incubator-brpc/blob/8199994e54fb3077625a1539b21d63d8e9e75ca0/docs/en/bvar.md)
+![arch1](images/arch1.png)
+
+**seastar在每个核心上运行一个应用程序线程，通过基于无锁队列显式的消息传递**（当跨核心通信不可避免时），而没有任何其他诸如共享数据、锁等同步方式——**Shared-nothing**，从而尽可能避免**锁unscalable lock primitives**、**缓存抖动cache bouncing**等影响
 
 ## Actor模式
 
-[Actor Model](https://en.wikipedia.org/wiki/Actor_model)是一种并发编程模型，每个线程在这种模型中作为一个Actor对不同类型的message做出响应，因此Actor也可以视为一个状态机，同时Actor也可以给其他Actor发送消息
+**[Actor Model](https://en.wikipedia.org/wiki/Actor_model)是一种并发编程模型**，每个线程在这种模型中作为一个Actor对不同类型的message做出响应，因此Actor也可以视为一个状态机，同时Actor也可以给其他Actor发送消息
 
 Actor模型下，每个Actor内部是单线程运行，因此是可以完全无锁的，并且Actor接收/发出message是全异步操作，只有接收message的队列本身需要保证操作的线程安全（保证Actor自身正在取message与多个Actors往此发送messages的线程安全），每个Actor都有一个message queue用于接收消息，例如从此Actor `A`自身的`queue`中取出了消息`a`并执行操作，根据结果选择发送一个`b`消息给另一个Actor `B`的`queue`由`B`来执行`b`
 
 Actor模型中需要识别每个Actor，通过识别对方进行消息通信与任务协作，与此相对应的另一种并发编程模型为[CSP Model](https://en.wikipedia.org/wiki/Communicating_sequential_processes)
 
-CSP模型中的主体是管道（channel），每个管道承载不同的消息，任意Process都可以根据需要在不同的管道中接收发送消息，这种模式下并不关心消息来自谁发给谁，而只关心不同管道可以取出不同的消息，例如从`A`管道取出的消息`a`执行一定操作，根据结果选择去`C`管道取出消息`c`执行一定操作，并发送一个`b`消息给管道`B`而不关心谁从`B`中取出`b`
+**CSP模型中的主体是管道channel**，每个管道承载不同的消息，任意Process都可以根据需要在不同的管道中接收发送消息，这种模式下并不关心消息来自谁发给谁，而只关心不同管道可以取出不同的消息，例如从`A`管道取出的消息`a`执行一定操作，根据结果选择去`C`管道取出消息`c`执行一定操作，并发送一个`b`消息给管道`B`而不关心谁从`B`中取出`b`
 
-Actor模型中的Actor与CSP模型中的Process很相似，而Actor模型中的message queue和CSP模型中的channel很相似
+**Actor模型中的Actor与CSP模型中的Process很相似，而Actor模型中的message queue和CSP模型中的channel很相似**
 
 ## `submit_to`
 
@@ -64,7 +67,7 @@ Actor模型中的Actor与CSP模型中的Process很相似，而Actor模型中的m
     }
     ```
 
-4. 基于信号量，通过`smp_service_group`对调用进行流量控制，若允许调用就将任务加入缓冲队列，并在`move_pending`中真正加入对端CPU的执行队列`_pending`
+4. 基于信号量，通过`smp_service_group`对调用进行**流量控制**，若允许调用就将任务加入缓冲队列，并在`move_pending`中真正加入对端CPU的执行队列`_pending`
 
     ```C++
     void smp_message_queue::submit_item(shard_id t, smp_timeout_clock::time_point timeout, std::unique_ptr<smp_message_queue::work_item> item) {
@@ -123,7 +126,7 @@ Actor模型中的Actor与CSP模型中的Process很相似，而Actor模型中的m
     }
     ```
 
-6. 与远端CPU执行`task->run_and_dispose()`不同，本地CPU在消费已经完成的`work_item`时会通过`smp_message_queue::process_completions`消费完成队列，进而调用了`async_work_item::complete()`
+6. 与远端CPU执行`task->run_and_dispose()`不同，**本地CPU消费**已经完成的`work_item`时会通过`smp_message_queue::process_completions`消费完成队列，进而调用了`async_work_item::complete()`
 
     ```C++
     size_t smp_message_queue::process_completions(shard_id t) {
@@ -152,6 +155,6 @@ Actor模型中的Actor与CSP模型中的Process很相似，而Actor模型中的m
     }
     ```
 
-    注意：从这里可以看出，每个任务虽然是在远端CPU执行，但是在消费结果设置`promise`时依然是在发起任务的CPU一侧，结合[seastar中的协程](Coroutines.md#1-当这个future对象已经完成时)是在设置`promise`后调用`coroutine_handle::resume`恢复执行，因此**seastar的协程并不会跨线程执行**，都是由创建协程的CPU执行
+    注意：从这里可以看出，每个任务虽然是在远端CPU执行，但是在**消费结果设置`promise`时依然是在发起任务的CPU一侧**，结合[seastar中的协程](Coroutines.md#1-当这个future对象已经完成时)是在设置`promise`后调用`coroutine_handle::resume`恢复执行，因此**seastar的协程并不会跨线程执行**，都是由创建协程的CPU执行
 
-7. 在完成时调用`async_work_item::complete()`就会对相应的`promise`对象设置结果，从而引发后续依赖此结果的`.then()`被执行，见在[Coroutine一文中的分析](Coroutines.md#then)
+7. 在完成时调用`async_work_item::complete()`就会对相应的`promise`对象设置结果，从而**引发后续依赖此结果的`.then()`被执行**，见在[Coroutine一文中的分析](Coroutines.md#then)
