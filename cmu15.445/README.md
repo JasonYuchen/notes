@@ -25,11 +25,19 @@
 
 ## Lecture 01 - Course Introduction and the Relational Model
 
+- relational model
+- relational algebra
+
 [here](01.Relational.md)
 
 ## Lecture 02 - Advanced SQL
 
-`TODO`
+- aggregate
+- nested queries
+- window function
+- common table expression
+
+[here](02.Advanced_SQL.md)
 
 ## Lecture 03 - Database Storage I
 
