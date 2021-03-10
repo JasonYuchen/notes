@@ -176,7 +176,7 @@ virtual bool try_enter_interrupt_mode() override {
         // Evict page to force kernel to send IPI to all threads, with
         // a side effect of executing a memory barrier on those threads
         // FIXME: does this work on ARM?
-        // 主动修改页数据后要求内核发送Inter Process Interruption, IPI给每个线程
+        // 主动修改页数据后要求内核发送Inter-Processor Interrupt, IPI给每个线程
         // 来使TLB失效，相应的副作用就是产生了内存屏障
         int r2 = madvise(mem, getpagesize(), MADV_DONTNEED);
         assert(r2 == 0);
