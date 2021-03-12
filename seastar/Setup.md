@@ -31,7 +31,7 @@
 4. 运行测试
 
     ```shell
-    ./test.py
+    ./test.py --mode debug
     ```
 
    - seastar依赖Linux AIO来执行异步I/O操作，同时依赖大页内存，因此运行前还需要修改`fs.aio-max-nr`以及`vm.nr_hugepages`
