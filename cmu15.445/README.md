@@ -8,8 +8,8 @@
    - Matrix ✅
    - Matrix Operation ✅
 2. **Buffer Pool Manager**
-   - LRU Replacement Policy
-   - Buffer Pool Manager
+   - LRU Replacement Policy ✅
+   - Buffer Pool Manager ✅
 3. **B+ Tree Index**
    - B+ Tree Pages
    - B+ Tree Data Structure
@@ -41,7 +41,11 @@
 
 ## Lecture 03 - Database Storage I
 
-`TODO`
+- file storage
+- page layout
+- tuple layout
+
+[here](03.Storage_I.md)
 
 ## Lecture 04 - Database Storage II
 
