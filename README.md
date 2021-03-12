@@ -24,6 +24,12 @@ Diego Ongaro: Consensus - bridging theory and practice
 
 [here](https://github.com/JasonYuchen/notes/tree/master/mit6.824)
 
+## seastar
+
+[seastar](http://seastar.io) - an advanced C++ framework for high-performance server applications on modern hardware
+
+[here](https://github.com/JasonYuchen/notes/tree/master/seastar)
+
 ## os
 
 Abraham Silberschatz: Operating System Concept
@@ -38,6 +44,8 @@ James F. Kurose: Computer Networking A Top Down Approach
 
 W.Richard Stevens: TCP/IP Illustrated Volume 1
 
+[here](https://github.com/JasonYuchen/notes/tree/master/tcpip1)
+
 ## consensus
 
 Heidi Howard: Distributed Consensus Revised
@@ -46,7 +54,7 @@ Heidi Howard: Distributed Consensus Revised
 
 [Lewis Baker: Asymmetric Transfer](https://lewissbaker.github.io/) contains several blogs with examples introducing coroutines in C++20
 
-[here](mit6.824)
+[here](https://github.com/JasonYuchen/notes/tree/master/coroutine)
 
 ## concurrency
 
@@ -71,6 +79,12 @@ Mark Allen Weiss: Data Structures & Algorithm Analysis in C++
 
 [here](https://github.com/JasonYuchen/notes/tree/master/brpc)
 
+## linux
+
+Various linux-related notes (e.g. epoll, io_uring)
+
+[here](https://github.com/JasonYuchen/notes/tree/master/linux)
+
 ## dragonboat
 
 [dragonboat](https://github.com/lni/dragonboat) is a high performance multi-group Raft consensus library in pure Go
@@ -83,6 +97,7 @@ Miscellaneous papers:
 
 - [KVell: the Design and Implementation of a Fast Persistent Key-Value Store](papers/2019_SOSP_KVell.md) SOSP '19
 - [An Analysis of Performance Evolution of Linux's Core Operations](papers/2019_SOSP_Syscall.md) SOSP '19
+- [Log-structured Memory for DRAM-based Storage](papers/2014_FAST_Log_Structured_Memory.md) FAST '14
 
 Papers in mit6.824:
 
