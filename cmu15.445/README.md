@@ -2,6 +2,8 @@
 
 [course schedule](https://15445.courses.cs.cmu.edu/fall2020/schedule.html)
 
+With extra materials from cs186 (UCB) and comp7104 (HKU)
+
 ## Projects
 
 1. **C++ Primer**
@@ -49,7 +51,9 @@
 
 ## Lecture 04 - Database Storage II
 
-`TODO`
+- storage model: OLTP/OLAP/HTAP
+
+[here](04.Storage_II.md)
 
 ## Lecture 05 - Buffer Pools
 
