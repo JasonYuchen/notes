@@ -57,7 +57,10 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 05 - Buffer Pools
 
-`TODO`
+- buffer pool
+- replacement policies
+
+[here](05.Buffer_Pools.md)
 
 ## Lecture 06 - Hash Tables
 
