@@ -93,3 +93,7 @@ A userspace disk I/O scheduler in seastar
 [Memory Barriers and Seastar on Linux](https://www.scylladb.com/2018/02/15/memory-barriers-seastar-linux/)
 
 Performance improvement when conditionally `wake_up` other threads, an interesting insight!
+
+## Incremental Compaction
+
+[Maximizing Disk Utilization with Incremental Compaction](https://www.scylladb.com/2020/01/16/maximizing-disk-utilization-with-incremental-compaction/)
