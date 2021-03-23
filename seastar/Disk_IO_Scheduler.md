@@ -18,11 +18,29 @@
 
 ### 文件系统 The filesystem
 
+seastar的**thread-per-core, TPC**设计，使得单个线程占用CPU在运行后不能出现任何会阻塞的操作，否则就会导致该线程上的所有工作都被阻塞，因此seastar的磁盘I/O极度依赖底层的XFS（XFS对Asynchronous IO的支持较其他文件系统而言更好），但**即使是XFS也会在一些情况下出现阻塞**
+
+XFS为了提升并行度，会从一个allocation group中为事务日志和元数据更新分配缓存，而如果一个allocation group在被耗尽时、或出现竞争时就可能导致I/O submission回退到同步行为，即阻塞
+
 ### 阻塞层 The Linux block layer
+
+当某个磁盘上有超过128个（通过`sudo cat /sys/class/block/sda/queue/nr_requests`可以查看，并且可以配置）尚未返回的I/O请求时，Linux内核阻塞层就会直接拒绝接收新的请求，并**同步等待**直到有请求返回才会接收新的请求
+
+但是**简单增加该值并不能解决阻塞问题**，一方面因为出现阻塞往往是大量请求难以被及时处理或是有其他故障，增加该值只会掩盖表面问题，另一方面假定每个请求延迟200微妙，大小为128kB，则限制请求数为128时可以达到600MB/s的吞吐量——这已经是主流SATA SSD的设计吞吐量了（NVMe SSD的吞吐量可以达到2000MB/s以上）
 
 ### 磁盘内队列 The disk array itself
 
+现代磁盘内部也会有队列来提升并发I/O性能，当请求足够多时队列就会被填充满，此时请求的处理延迟就会不断增加而吞吐量却不会再改变——**系统过载overload**，可以参考[Little's Law](https://github.com/JasonYuchen/notes/blob/master/brpc/flow_control.md#littles-law)
+
+![ioscheduler2](images/ioscheduler2.png)
+
+显然如同Little's Law中的分析，当磁盘过载后，继续发起新的请求只会增加延迟，没有任何益处，且有可能导致上游服务超时不断重试引起雪崩
+
 ### 限制磁盘并行度 Limiting the disk parallelism in practice
+
+scylla/seastar通过在运行真正的服务前，首先在系统上运行`iotune`工具来发现系统的最佳承载能力——`--max-io-requests`
+
+`TODO: 增加对比测试结果 https://www.scylladb.com/2016/04/14/io-scheduler-1/`
 
 ## 调度器的设计 Seastar Disk I/O Scheduler Design - The I/O Queues
 
