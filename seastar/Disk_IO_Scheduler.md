@@ -44,9 +44,25 @@ scylla/seastar通过在运行真正的服务前，首先在系统上运行`iotun
 
 ## 调度器的设计 Seastar Disk I/O Scheduler Design - The I/O Queues
 
+在所有的调度算法中，都需要考量**公平性fairness**的问题，往往是基于预先定义的优先级进行任务的调度，seastar中称之为`priority classes`
+
+从上文中可以看出，Linux内核层对每一块磁盘的未返回请求数量有一个全局的限制，而seastar采用了shared-nothing的设计，因此在seastar中的**每个shard都需要有一种机制与其他shards一起分配磁盘I/O的全局限制量`nr_requests`值**
+
+最简单的设计就是均分全局数量，seastar的内存设计（每个shard均分可用内存）就是如此，在工作量能够较好的均匀分配（没有**倾斜skew**）到所有shards上时资源利用较为充分，否则也会出现**碎片问题fragmentation**
+
+尤其是当全局限制较小甚至少于shards数量时，每个shard的请求配额极小，极有可能造成部分shards忙碌但更多shards空闲进而浪费磁盘I/O资源，因此对于磁盘I/O来说，seastar并没有简单采用基于shards均匀分配的方案，而是采用自适应的方式，**基于多个`I/O Queue`进行均分**，每个`I/O Queue`均分全局限制量，而多个shards共享一个`I/O Queue`（如果全局限制足够大，则每个shard独享一个`I/O Queue`，此时就回退到了简单均分的方案）
+
+![ioscheduler3](images/ioscheduler3.png)
+
+从而seastar的磁盘I/O调度器就需要在考虑`priority classes`时对每个`I/O Queue`进行shards任务的分配和调度
+
+**注意：当前设计已经不再是最新的，TODO: 分析scheduler 2.0的设计，[`--num-io-queues`选项已经被废弃](https://github.com/scylladb/seastar/issues/864)**
+
 ### 选择队列数量 Choosing the right number of I/O Queues
 
-[This option is deprecated](https://github.com/scylladb/seastar/issues/864)
+每个`IO Queue`都会被固定放置在一个shard中，此shard就被称为该`IO Queue`的协调者coordinator，并且**所有与此`IO Queue`交互的shards都必须属于同一个[NUMA节点](https://en.wikipedia.org/wiki/Non-uniform_memory_access)**（这个限制也隐式规定了整个seastar下的`IO Queue`数量最少为NUMA节点的数量）
+
+可以通过`--num-io-queues`来显式指定数量，显然越少则局部的并行性越好磁盘利用越充分，但跨核心通信引入的I/O代价也越高（通常一个较大的I/O请求本身例如128KB就足够掩盖跨核通信带来的开销），因此在部署系统时需要根据硬件性能和工作负载类型进行设计（seastar提供了`iotune`工具进行自适应调整）
 
 ### 优先级 Priority classes in Scylla
 
