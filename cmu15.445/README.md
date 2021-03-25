@@ -64,7 +64,10 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 06 - Hash Tables
 
-`TODO`
+- static hashing
+- dynamic hashing
+
+[here](06.Hash_Tables.md)
 
 ## Lecture 07 - Trees Indexes I
 
