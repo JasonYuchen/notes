@@ -1,6 +1,8 @@
 # Designing a Userspace Disk I/O Scheduler for Modern Datastores
 
-## 动机与原理 Motivation
+## Part I: 动机与原理 Motivation
+
+[original post](https://www.scylladb.com/2016/04/14/io-scheduler-1/)
 
 在诸如数据库等应用中，会有大量需要进行磁盘读写的线程，称之为Actor（即并发编程模型中的Actor），而与网络I/O不同的是磁盘I/O通常很难进行**Actor之间的IO申请调度、带宽分配、优先级等细粒度的控制**，例如如果一次较短的读取请求被排在较多的写请求后执行，则读请求的延迟就会显著增大
 
@@ -32,6 +34,8 @@ XFS为了提升并行度，会从一个allocation group中为事务日志和元�
 
 现代磁盘内部也会有队列来提升并发I/O性能，当请求足够多时队列就会被填充满，此时请求的处理延迟就会不断增加而吞吐量却不会再改变——**系统过载overload**，可以参考[Little's Law](https://github.com/JasonYuchen/notes/blob/master/brpc/flow_control.md#littles-law)
 
+显然**最佳并发度max useful disk concurrency发生在磁盘吞吐量恰好达到平台时**，在其左侧没有队列堆积但磁盘吞吐量没有充分发挥出来，在其右侧吞吐量没有进一步提升而队列堆积请求延时上升
+
 ![ioscheduler2](images/ioscheduler2.png)
 
 显然如同Little's Law中的分析，当磁盘过载后，继续发起新的请求只会增加延迟，没有任何益处，且有可能导致上游服务超时不断重试引起雪崩
@@ -42,7 +46,9 @@ scylla/seastar通过在运行真正的服务前，首先在系统上运行`iotun
 
 `TODO: 增加对比测试结果 https://www.scylladb.com/2016/04/14/io-scheduler-1/`
 
-## 调度器的设计 Seastar Disk I/O Scheduler Design - The I/O Queues
+## Part II: 调度器的设计 Seastar Disk I/O Scheduler Design - The I/O Queues
+
+[original post](https://www.scylladb.com/2016/04/29/io-scheduler-2/)
 
 在所有的调度算法中，都需要考量**公平性fairness**的问题，往往是基于预先定义的优先级进行任务的调度，seastar中称之为`priority classes`
 
@@ -66,10 +72,103 @@ scylla/seastar通过在运行真正的服务前，首先在系统上运行`iotun
 
 ### 优先级 Priority classes in Scylla
 
+在Scylla 1.0版本中，所有读写请求都被分为了6个优先级类：
+
+|Priority class|Shares|
+|:-|-:|
+|Commitlog|100|
+|Memtable writes|100|
+|Compaction (reads&writes)|100|
+|CQL query read|100|
+|Repair/Streaming reads|20|
+|Repair/Streaming writes|20|
+
+`TODO: 查看当前最新版本的Scylla的配置`
+
 ### 队列的内部功能 Internal Functioning of an I/O Queue
 
-### Scylla的调度器 Scylla's I/O Scheduler in Practice
+每个`IO Queue`在seastar内部就是`class fair_queue`，源代码[见此](https://github.com/scylladb/seastar/blob/master/src/core/fair_queue.cc)
 
-### 整合所有设计 Putting it all together
+`IO Queue`需要负责对不同优先级的请求根据优先级的配额shares进行流量控制，即**在每个时间窗口内每个优先级类内只允许限制数量的I/O请求被执行**，这个时间窗口的长度也可以配置
+
+同时`IO Queue`单次允许不超过N个I/O请求被同时提交，N就是该`IO Queue`的本地队列深度，另外由于每个I/O请求的数据量并不同，因此**仅根据请求数量分配也有可能导致磁盘的带宽分配并不按此比例**，所以`IO Queue`还引入了请求的权重weight一同参与流量控制的计算，在**scylla中每个请求的权重与请求大小是次线性关系sublinear**（通常发起1次10kB的请求会优于发起10次1kB的请求，因此sublinear更适用实际场景）
+
+在流量控制的计算中采用**指数衰减算法**如下，每个I/O请求在发起时的初始代价设为$c_0=w/s$，随着时间的推移，其权重指数衰减为以下值：
+
+```math
+c=e^{t/\tau}c_0=e^{t/\tau}(w/s)
+```
+
+在每个`priority class`内部会有个累加器记录该优先级下所有发出请求的I/O代价总和，当并发请求数量少于`IO Queue`队列深度时，所有`priority class`的请求都可以进入，但是当出现竞争时就必须等待，而`IO Queue`每次都会**挑选代价总和最低的`priority class`进行执行，保证了没有饥饿的发生**，类似[Xen Credit Scheduler](https://wiki.xenproject.org/wiki/Credit_Scheduler)，代价计算过程`<seastar/src/core/fair_queue.cc>`如下：
+
+```C++
+void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
+    //// skip
+
+    // 采用_base作为上一次规范化后的基准时间，所有新请求都基于该_base进行规范化
+    // 从而避免了每次要对_accumulated进行decay，只需要将新请求decay到_base就可以直接累加
+    auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
+    // _maximum_capacity(cfg.max_req_count, cfg.max_bytes_count)
+    // 将weight规范化后再计算获得cost，规范化是为了同时考虑IOPS和bandwidth，过程见fair_queue_ticket::normalize
+    auto req_cost  = req._ticket.normalize(_group.maximum_capacity()) / h->_shares;
+    // 根据时间的偏移进行指数衰减，tau的值通常是100ms
+    auto cost  = expf(1.0f/_config.tau.count() * delta.count()) * req_cost;
+    float next_accumulated = h->_accumulated + cost;
+    // 持续的I/O请求累计代价使得出现某个priority class的累计代价达到了inf
+    // 则需要所有priority class一起重新规范化并计算代价
+    while (std::isinf(next_accumulated)) {
+        // 通常一次重新规范化后，所有priority class的_accumalted就足够笑了，因此循环体往往只执行一次
+        normalize_stats();
+        // If we have renormalized, our time base will have changed. This should happen very infrequently
+        delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
+        cost  = expf(1.0f/_config.tau.count() * delta.count()) * req_cost;
+        next_accumulated = h->_accumulated + cost;
+    }
+    h->_accumulated = next_accumulated;
+
+    //// skip
+}
+
+/// A ticket is specified by a weight and a size. For example, one can specify a request of weight
+/// 1 and size 16kB. If the fair_queue accepts one such request per second, it will sustain 1 IOPS
+/// at 16kB/s bandwidth.
+class fair_queue_ticket {
+    uint32_t _weight = 0; ///< the total weight of these requests for capacity purposes (IOPS).
+    uint32_t _size = 0;   ///< the total effective size of these requests
+}
+
+/// The normalization function itself is an implementation detail, but one can expect either weight or
+/// size to have more or less relative importance depending on which of the dimensions in the
+/// denominator is relatively higher.
+/// 规范化实际上可以是不同的实现，来体现出IOPS或是size占据更重要的地位，实际denominator就是_group.maximum_capacity()
+/// 而后者根据配置进行初始化denominator._weight=cfg.max_req_count, denominator._size=cfg.max_bytes_count
+///   cfg.max_req_count：该队列中最大允许的并发IO请求数
+///   cfg.max_bytes_count：该队列中最大允许的IO字节数
+float fair_queue_ticket::normalize(fair_queue_ticket denominator) const noexcept {
+    return float(_weight) / denominator._weight + float(_size) / denominator._size;
+}
+
+/// 约1.17549e-38
+float fair_queue::normalize_factor() const {
+    return std::numeric_limits<float>::min();
+}
+
+void fair_queue::normalize_stats() {
+    // 此时time_delta由于std::log(1.17549e-38)变为近似-87.3，对于100ms的tau，则base向后跳约9s
+    auto time_delta = std::log(normalize_factor()) * _config.tau;
+    // time_delta is negative; and this may advance _base into the future
+    // 更新该次规范化后的基准时间点_base，此后的新请求的代价都会根据此_base进行代价规范化
+    _base -= std::chrono::duration_cast<clock_type::duration>(time_delta);
+    // 将所有priority class的累加器一起规范化（累加计数到过大的一个数，因此一起按normalize_factor()比例进行缩小）
+    // 由于所有priority class竞争时，由fair queue挑选_accumulated最小的执行，因此一起按比例缩小的好处：
+    //   1. 不会变为负值
+    //   2. 保持了相对大小关系
+    for (auto& pc: _all_classes) {
+        pc->_accumulated *= normalize_factor();
+    }
+}
+```
 
 ## 总结 Summary and future work
+
+`TODO: 分析scheduler 2.0的设计`
