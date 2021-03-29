@@ -46,6 +46,10 @@ scylla/seastar通过在运行真正的服务前，首先在系统上运行`iotun
 
 `TODO: 增加对比测试结果 https://www.scylladb.com/2016/04/14/io-scheduler-1/`
 
+### The Linux Storage Stack
+
+![storage](images/Linux-storage-stack-diagram_v4.10.png)
+
 ## Part II: 调度器的设计 Seastar Disk I/O Scheduler Design - The I/O Queues
 
 [original post](https://www.scylladb.com/2016/04/29/io-scheduler-2/)
@@ -99,7 +103,7 @@ scylla/seastar通过在运行真正的服务前，首先在系统上运行`iotun
 c=e^{t/\tau}c_0=e^{t/\tau}(w/s)
 ```
 
-在每个`priority class`内部会有个累加器记录该优先级下所有发出请求的I/O代价总和，当并发请求数量少于`IO Queue`队列深度时，所有`priority class`的请求都可以进入，但是当出现竞争时就必须等待，而`IO Queue`每次都会**挑选代价总和最低的`priority class`进行执行，保证了没有饥饿的发生**，类似[Xen Credit Scheduler](https://wiki.xenproject.org/wiki/Credit_Scheduler)，代价计算过程`<seastar/src/core/fair_queue.cc>`如下：
+在每个`priority class`内部会有个累加器记录该优先级下所有发出请求的I/O代价总和，当并发请求数量少于`IO Queue`队列深度时，所有`priority class`的请求都可以进入，但是当出现竞争时就必须等待，而`IO Queue`每次都会**挑选代价总和最低的`priority class`进行执行，而I/O请求的代价随着时间指数衰减相当于是'优先级'提高最终一定会被执行，保证了没有饥饿的发生**，类似[Xen Credit Scheduler](https://wiki.xenproject.org/wiki/Credit_Scheduler)，代价计算过程`<seastar/src/core/fair_queue.cc>`如下：
 
 ```C++
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
@@ -169,6 +173,82 @@ void fair_queue::normalize_stats() {
 }
 ```
 
+### Scylla的调度器 Scylla's I/O Scheduler in Practice
+
+采用4个优先级类，每次请求大小设置为128KB，测试结果如下：
+
+|Shares Distribution|Throughput KB/s|
+|:-|:-|
+|10, 10, 10, 10|137.5k, 137.5k, 137.5k, 137.5k|
+|100, 100, 100, 100|137.5k, 137.5k, 137.5k, 137.5k|
+|10, 20, 40, 80|37.3k, 73.7k, 146.6k, 292.4k|
+|100, 10, 10, 10|421.2k, 42.9k, 42.9k, 42.9k|
+
+## Part III: 进一步降低延迟 Better Latencies Under Any Circumstance
+
+[original post](https://www.scylladb.com/2018/04/19/scylla-i-o-scheduler-3/)
+
+Scylla在运行时会通过统计数据来找出磁盘的[最佳并发度max useful disk concurrency](#磁盘内队列-the-disk-array-itself)，但是初始版本统计存在以下局限性：
+
+1. **I/O请求并没有区分读read/写write**，调优的参数只有`--max-io-requests`，并且自适应调优时基于了读reads，而现代硬盘对两者的支持不尽相同，通常对读请求的响应会好于对写请求的响应，那么就可能会出现在一块已经有重的写负载磁盘上执行读时，响应远不及预期
+2. **调优没有考虑请求的大小**，在自适应调优时只使用了固定的4kB读取请求，但实际上不同大小的请求会对最优并发度有较大影响，例如下图，显然对于4k请求和128k请求的最佳并发度并不同，前者在120时依然没有饱和，后者在20时就已经出现了瓶颈
+   ![ioscheduler4](images/ioscheduler4.png)
+   ![ioscheduler5](images/ioscheduler5.png)
+
+通常磁盘会提供**IOPS**和带宽**bandwidth**两个指标，例如Samsung SSD 850 PRO的IOPS为95k和512MB/s的读带宽（写入略微少于512MB/s），那么对于95k IOPS的4kB请求会消耗371MB/s的带宽，IOPS首先达到瓶颈；而如果是128kB的请求则仅需4k IOPS就会耗尽带宽，而**IO Scheduler就应该同时监测这两个指标，任一达到瓶颈就说明磁盘已经饱和**
+
+```C++
+void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
+    while (_requests_queued) {
+        /// skip
+
+        auto& req = h->_queue.front();
+        // 尝试获取IO配额，若不够则说明磁盘过载，退出本轮dispatch循环
+        if (!grab_capacity(req._ticket)) {
+            break;
+        }
+        
+        /// skip
+    }
+}
+
+bool fair_queue::grab_capacity(fair_queue_ticket cap) noexcept {
+    if (_pending) {
+        return grab_pending_capacity(cap);
+    }
+
+    fair_group_rover orig_tail = _group.grab_capacity(cap);
+    // 核心在于比较是否过载，maybe_ahead_of中会同时比较fair_queue_ticket中的weight和size，必须同时没有超过head才可以执行
+    // head的weight限制就是最大并发请求数，基于磁盘的IOPS，head的size限制就是最大吞吐量字节数，基于磁盘的bandwidth
+    if ((orig_tail + cap).maybe_ahead_of(_group.head())) {
+        _pending.emplace(orig_tail, cap);
+        return false;
+    }
+
+    return true;
+}
+
+fair_queue_ticket fair_group_rover::maybe_ahead_of(const fair_group_rover& other) const noexcept {
+    // fair_queue_ticket重载了operator bool()，在 weight>0 || size>0 时是true
+    // 因此必须同时为0，即weight和size均未达到head的限制，才会返回false，即"not ahead of"
+    return fair_queue_ticket(std::max<int32_t>(_weight - other._weight, 0),
+            std::max<int32_t>(_size - other._size, 0));
+}
+```
+
+通过对IO请求同时控制IOPS和bandwidth消耗，可以更精确找到磁盘的最佳并发程度，并且**对于短读取（例如重写负载下的偶发4kB读取）的延迟有显著优化**，例如下表128kB的写请求持续打满磁盘带宽，而每10ms发生一次4kB的读请求：
+
+||Before||After||
+|:-|:-|:-|:-|:-|
+||128 kB writes|4kB reads|128kB writes|4kB reads|
+|Throughput|518MB/s|219KB/s|514MB/s|347KB/s|
+|Avg lat.|24ms|8ms|24ms|1ms|
+|P95|24ms|9ms|24ms|2ms|
+|P99|36ms|12ms|35ms|6ms|
+|P999|43ms|15ms|36ms|7ms|
+
 ## 总结 Summary and future work
 
 `TODO: 分析scheduler 2.0的设计`
+
+[IO queues to share capacities](https://groups.google.com/g/seastar-dev/c/HyMWhmF4EPw/m/nsqpVEcnCgAJ)
