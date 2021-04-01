@@ -1,6 +1,6 @@
 # io_uring
 
-## Evolution of Linux I/O system calls[^foot1]
+## Evolution of Linux I/O system calls
 
 ### 阻塞 Blocking
 
@@ -44,7 +44,7 @@ ssize_t write(int fd, const void *buf, size_t count);
 - 不良的接口设计，每一次IO submission需要复制64+8字节，每一次completion也需要复制32字节，从而一次IO操作要额外复制104字节，对于高频率的IO操作显然这是不利的，同时每个IO操作需要两次系统调用
 - 技术上接口被设计为非阻塞的，但是实际上[可能会导致阻塞](https://lwn.net/Articles/724198/)
 
-## Introduction of io_uring[^foot2]
+## Introduction of io_uring
 
 ### What is io_uring
 
@@ -75,7 +75,7 @@ sqe所在的**submission ring**和cqe所在的**completion ring**就是由kernel
 
 基于`io_uring`可以非常直观的基于producer-consumer的形式构建一个**事件驱动event-driven的执行引擎**：
 
-- 发起IO请求[^foot1]
+- 发起IO请求
 
     ```c++
     /* Describes what we need from a read */
@@ -112,7 +112,7 @@ sqe所在的**submission ring**和cqe所在的**completion ring**就是由kernel
     }
     ```
 
-- 处理完成的IO请求[^foot1]
+- 处理完成的IO请求
 
     ```c++
     /*
@@ -183,7 +183,7 @@ sqe所在的**submission ring**和cqe所在的**completion ring**就是由kernel
 
 ### Performance
 
-测试摘自[^foot1]
+测试摘自Reference 1
 
 存储设备采用NVMe协议的磁盘并拥有3.5M的读取IOPS，8 CPUs运行72个fio任务，每个任务执行随机读取4个`O_DIRECT`文件并设置`iodepth=8`从而确保每个CPU都完全满载：
 
@@ -204,7 +204,7 @@ sqe所在的**submission ring**和cqe所在的**completion ring**就是由kernel
 |`linux-aio`|4.13M|105.1K|-17.9%|
 |`io_uring`|5.02M|106.7K|-|
 
-## io_uring in action with liburing[^foot3]
+## io_uring in action with liburing
 
 `liburing`对`io_uring`的API进行了封装，更易于使用，并且依然可以混合使用底层`io_uring`的接口
 
@@ -237,8 +237,48 @@ io_uring_cqe_seen(&ring, cqe);
 io_uring_queue_exit(&ring);
 ```
 
+### `cp` as an example
+
+`TODO`
+
+## Modern storage is plenty fast: It is the APIs that are bad
+
+[original post](https://itnext.io/modern-storage-is-plenty-fast-it-is-the-apis-that-are-bad-6a68319fbc1a)
+
+当前存储设备发展迅速（例如[KVell的测试结果](https://github.com/JasonYuchen/notes/blob/master/papers/2019_SOSP_KVell.md)），而**上层的API没有及时适配现代存储设备的特性**，导致很多误解的存在，例如：
+
+> Well, it is fine to copy memory here and perform this expensive computation because it saves us one **I/O operation, which is even more expensive**
+>
+> I am designing a system that needs to be fast. Therefore **it needs to be in memory**
+>
+> If we split this into multiple files it will be slow because it will generate random I/O patterns. We need to optimize this for **sequential access and read from a single file**
+>
+> **Direct I/O is very slow**. It only works for very specialized applications. If you don’t have your own cache you are doomed
+
+本节的分析基于下一代**Intel Optane NVMe存储设备**
+
+### 传统基于文件的API存在以下三个主要问题
+
+1. **由于I/O的代价大，因此API做了其他更多高代价的操作**
+   一次传统API的读取过程通常会有如下流程：首先产生**page fault**，随后在数据就绪时发生中断**interruption**，若是system call的读取就通过**copy**将数据放置到用户的缓存buffer，若是mmap的读取就需要更新虚拟内存映射**update virtual memory mappings**
+
+   这些操作均不是没有开销的，只是在存储设备更慢时，使用这些操作的额外开销可以忽略，而在存储设备已经有微秒级延迟的现在，**这些操作的开销和存储设备的开销在一个量级从而不能忽略**
+2. **读放大 Read amplification**
+   现代NVMe存储设备支持并发操作，因此单纯的在多个小文件上执行随机读取并不应该比单个文件执行多次随机读取要开销大，但是读取的**总数据量依然需要考虑the aggregate amount of data read**
+
+   OS单次读取的粒度最小就是4kB，因此假如读取1kB数据，分别从2个文件中读取512B，则实际上OS会从2各文件中各读取4kB，从而读取了9kB但是只有1kB会被使用到，更加不利的是OS通常还会执行**预读取read ahead**一次读取实际上会读取128kB（数据局部性原理，但是在随机读取上往往相邻数据并不一定后续就会被使用到），从而**2个文件中一共读取1kB最终使得256kB数据被读入**，99%的读取数据实际上都被浪费了
+
+   假如真的进行测试会发现，读多个小文件确实会更加慢，但这和存储设备无关，存储设备实际支持并发读取，这是上述OS读取流程的问题——*It is the APIs that are bad*
+3. **传统的APIs并没有充分利用并行**
+   即使是最新的存储设备，依然比CPU要慢，因此当发起I/O请求时，在数据返回前，CPU实际上是在等待的，浪费了计算力，而如果要挖掘并行的可能，例如采用多个小文件则又出现了**读放大的问题read amplification**，例如采用线程池多个线程并发读取则又**放大了每个I/O请求本身的代价**（上下文切换，跨核通信等）
+
+### 面向更好的APIs
+
+`TODO`
+
 ## References
 
-[^foot1]: [How io_uring and eBPF Will Revolutionize Programming in Linux](https://www.scylladb.com/2020/05/05/how-io_uring-and-ebpf-will-revolutionize-programming-in-linux/)
-[^foot2]: [io_uring](https://kernel.dk/io_uring.pdf)
-[^foot3]: [liburing](https://github.com/axboe/liburing)
+1. [How io_uring and eBPF Will Revolutionize Programming in Linux](https://www.scylladb.com/2020/05/05/how-io_uring-and-ebpf-will-revolutionize-programming-in-linux/)
+1. [io_uring](https://kernel.dk/io_uring.pdf)
+1. [liburing](https://github.com/axboe/liburing)
+1. [It is the APIs that are bad](https://itnext.io/modern-storage-is-plenty-fast-it-is-the-apis-that-are-bad-6a68319fbc1a)
