@@ -71,11 +71,17 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 07 - Trees Indexes I
 
-`TODO`
+- B+ tree
+
+[here](07.Tree_Indexes_I.md)
 
 ## Lecture 08 - Trees Indexes II
 
-`TODO`
+- B+ tree
+- More Index Considerations
+- 
+
+[here](08.Tree_Indexes_II.md)
 
 ## Lecture 09 - Index Concurrency Control
 
