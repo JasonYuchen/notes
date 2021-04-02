@@ -274,7 +274,41 @@ io_uring_queue_exit(&ring);
 
 ### 面向更好的APIs
 
-`TODO`
+前述章节提到的`io_uring`是新的一代API，但是如果使用buffered I/O，则上述问题并没有直接解决，[Glommio](https://www.datadoghq.com/blog/engineering/introducing-glommio/)在以下方面做了更好的设计：
+
+- 采用**Direct I/O**
+- 采用`io_uring`的**registered buffer**
+- 采用`io_uring`的**poll-based completion**
+
+#### 1. streams
+
+对于streams通常会执行连续读取，因此**更大的block**和**预读取read-ahead**依然会被使用，但是在Glommio中的read-ahead设计与OS的设计不同：OS会在read-ahead出来的内容被彻底使用完后才会进行下一次read-ahead读取，而Glommio充分挖掘存储设备的并行性，每次使用一部分缓存的数据就会立即发起新的读取，试图保证一直有稳定量的数据可供读取**keep a fixed number of buffers in-flight**，类似双指针，"用户的读取指针"前进时，"Glommio的预读取指针"也会进行
+
+|Type|Result|Throughput MB/s|
+|:-|:-|:-|
+|Buffered I/O|Scanned 53GB in 56s| 945.14|
+|Direct I/O (4kB buffers, **parallelism of 1**)|Scanned 53GB in 115s|463.23|
+|Direct I/O (4kB buffers, **read-ahead factor to exploit parallelism**, data copied from Glommio)|Scanned 53GB in 22s|2350|
+|Direct I/O (4kB buffers, read-ahead factor to exploit parallelism, **directly read Glommio internal buffer**)|Scanned 53GB in 21s|2450|
+
+当配置如下时：单次I/O大小为512kB，维持5个inflight缓存，内存预先分配以及注册到`io_uring`，直接读取Glommio内部缓存避免拷贝，采用`io_uring`的poll mode确保没有中断和上下文切换
+
+|Type|Result|Throughput MB/s|
+|:-|:-|:-|
+|Direct I/O|Scanned 53GB in 7s|7290|
+
+#### 2. random reads
+
+对于random access file，随机读取**只接收position和size两个参数**，数据会被读取到**已经预先注册到`io_uring`的缓存**中，从而免去了一次数据拷贝，存储设备的数据被拷贝到注册的缓存中，用户直接使用该缓存中的数据
+
+对于随机读取来说OS页缓存就非常不必要甚至有害了，在下列测试中，1.65GB的数据可以完全放入内存。从而**Buffered I/O完全利用了内存实现了比Direct I/O快20%，而后者仅使用了20x4kB缓存**，而当读取足够多的数据直接击穿OS页缓存时，Buffered I/O性能如预期的剧烈下降
+
+|Type|Result|IOPS|
+|:-|:-|:-|
+|Buffered I/O|size span of 1.65GB, 20s|693870|
+|Direct I/O|size span of 1.65GB, 20s|551547|
+|Buffered I/O|size span of 53.69GB, 20s|237858|
+|Direct I/O|size span of 53.69GB, 20s|547479|
 
 ## References
 
