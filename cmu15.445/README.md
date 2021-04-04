@@ -79,13 +79,15 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 - B+ tree
 - More Index Considerations
-- 
 
 [here](08.Tree_Indexes_II.md)
 
 ## Lecture 09 - Index Concurrency Control
 
-`TODO`
+- Lock and Latch
+- Concurrent Index Operations
+
+[here](09.Index_Concurrency_Control.md)
 
 ## Lecture 10 - Sorting + Aggregations
 
