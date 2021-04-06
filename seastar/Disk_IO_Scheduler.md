@@ -247,6 +247,14 @@ fair_queue_ticket fair_group_rover::maybe_ahead_of(const fair_group_rover& other
 |P99|36ms|12ms|35ms|6ms|
 |P999|43ms|15ms|36ms|7ms|
 
+## Part IV: 避免偏差 New IO Scheduler
+
+[brief](https://www.scylladb.com/2021/01/28/project-circe-january-update/)
+
+![old-scheduler](images/ioscheduler6.png)
+
+![new-scheduler](images/ioscheduler7.png)
+
 ## 总结 Summary and future work
 
 `TODO: 分析scheduler 2.0的设计`
