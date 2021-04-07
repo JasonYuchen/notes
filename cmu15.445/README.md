@@ -91,7 +91,11 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 10 - Sorting + Aggregations
 
-`TODO`
+- multi-pass sorting
+- sorting aggregation
+- hashing aggregation
+
+[here](10.Sorting_Aggregation.md)
 
 ## Lecture 11 - Joins Algorithms
 
