@@ -99,7 +99,11 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 11 - Joins Algorithms
 
-`TODO`
+- loop join
+- sort-merge join
+- hash join
+
+[here](11.Join_Algorithms.md)
 
 ## Lecture 12 - Query Execution I
 
