@@ -251,9 +251,76 @@ fair_queue_ticket fair_group_rover::maybe_ahead_of(const fair_group_rover& other
 
 [brief](https://www.scylladb.com/2021/01/28/project-circe-january-update/)
 
+原先的IO Scheduler设计中，数个shards共享一个`IO Queue`，并且实际持有`IO Queue`的shard称为coordinator，而其他shards需要通过消息通信message passing的方式将IO请求提交给coordinator
+
+所有`IO Queue`均分物理磁盘的IOPS和bandwidth限制，而`IO Queue`最多情况下会与shards一一对应，即每个shard都是coordinator，**当IO请求数量在`IO Queue`层面不均匀时依然有可能出现磁盘浪费**，如下图：
+
 ![old-scheduler](images/ioscheduler6.png)
 
+并且由于non-coordinator需要跨核通信，不仅有可能带来**IO请求延迟的上升**，而且**复杂化了Cancellation**——需要将cancellation事件也跨核通信
+
+[IO Scheduler 2.0的设计中](https://groups.google.com/g/seastar-dev/c/HyMWhmF4EPw/m/nsqpVEcnCgAJ)，引入了共享IO容量的设计
+
+**每个shard持有自己的`IO Queue`，而多个`IO Queue`则共享一个`IO Group`，每个`IO Group`都可以配置成物理磁盘的容量限制**，默认情况下每个NUMA节点对应一个`IO Group`包含该NUMA节点的所有shards，当某个shard发起IO请求时，就从其`IO Queue`所在的`IO Group`获取配额，当该IO请求完成时再将配额还给`IO Group`，从而每个shard都能完全利用上磁盘如下图：
+
 ![new-scheduler](images/ioscheduler7.png)
+
+`IO Group`内的磁盘容量分配不能简单采用`atomic::fetch_add/fetch_sub`，因为**当超出限制时，后续持续请求IO请求的shards能够实际得到执行的顺序无法得到保障**，可能会出现某个shard饥饿
+
+在这里采用了**滑动窗口sliding window的方式**，使用`head`标识实际的容量和`tail`标识当前执行的容量，即`head - tail`就是可用容量，当发起IO请求时`tail += cost`，结束IO请求时`head += cost`，假如某次IO请求占用的容量超过的可用余量，即`tail += cost; tail > head`就需要等待，此时`tail`已经被更新到超过`head`的值，**该请求就会等到`head >= tail`才被执行，从而保证了IO请求过多时实际的执行顺序与请求的提交顺序一致**
+
+```C++
+fair_group_rover fair_group::grab_capacity(fair_queue_ticket cap) noexcept {
+    // 发起IO请求时无论当前tail是否已经超过head，总是会递增tail，并且返回递增前tail的值
+    fair_group_rover cur = _capacity_tail.load(std::memory_order_relaxed);
+    while (!_capacity_tail.compare_exchange_weak(cur, cur + cap)) ;
+    return cur;
+}
+
+bool fair_queue::grab_capacity(fair_queue_ticket cap) noexcept {
+    // 当前有等待中的IO请求，则首先尝试执行等待的请求
+    if (_pending) {
+        return grab_pending_capacity(cap);
+    }
+
+    fair_group_rover orig_tail = _group.grab_capacity(cap);
+    // tail已经被递增了，但是如果检测到递增后的tail超过了head，就会放入_pending等待
+    if ((orig_tail + cap).maybe_ahead_of(_group.head())) {
+        _pending.emplace(orig_tail, cap);
+        return false;
+    }
+
+    return true;
+}
+
+bool fair_queue::grab_pending_capacity(fair_queue_ticket cap) noexcept {
+    // pending head就是实际等待的位置点，即此前递增tail后超过head的位置
+    fair_group_rover pending_head = _pending->orig_tail + cap;
+    // 若是依然比当前head要前，则不执行
+    if (pending_head.maybe_ahead_of(_group.head())) {
+        return false;
+    }
+
+    if (cap == _pending->cap) {
+        _pending.reset();
+    } else {
+        /*
+         * This branch is called when the fair queue decides to
+         * submit not the same request that entered it into the
+         * pending state and this new request crawls through the
+         * expected head value.
+         * 
+         * 若此时试图执行的请求并不是让fair queue进入pending状态的请求
+         * 即此时的cap与pending记录的cap不同
+         * 则是执行新的IO请求（类似插队？），并且更新tail和pending
+         */
+        _group.grab_capacity(cap);
+        _pending->orig_tail += cap;
+    }
+
+    return true;
+}
+```
 
 ## 总结 Summary and future work
 
