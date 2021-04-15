@@ -321,9 +321,3 @@ bool fair_queue::grab_pending_capacity(fair_queue_ticket cap) noexcept {
     return true;
 }
 ```
-
-## 总结 Summary and future work
-
-`TODO: 分析scheduler 2.0的设计`
-
-[IO queues to share capacities](https://groups.google.com/g/seastar-dev/c/HyMWhmF4EPw/m/nsqpVEcnCgAJ)

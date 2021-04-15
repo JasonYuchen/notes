@@ -86,7 +86,6 @@ A userspace disk I/O scheduler in seastar
   - [part 1](https://www.scylladb.com/2016/04/14/io-scheduler-1/)
   - [part 2](https://www.scylladb.com/2016/04/29/io-scheduler-2/)
 - Stage 2 (2021.01.28-, [Project Circe](https://www.scylladb.com/2021/01/28/project-circe-january-update/))
-  `TODO`
 
 ## Memory Barriers when `wake_up`
 
