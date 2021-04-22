@@ -87,7 +87,64 @@ slack /run/user/1000/gdm/Xauthority
 
 ## 2. 技术背景 Technology Background
 
-`TODO`
+### Extended BPF, eBPF
+
+历史与底层实现技术暂时跳过
+
+### 调用栈回溯
+
+1. **基于栈帧指针的栈 Frame Pointer-Based Stacks**
+  通常栈帧都可以通过链表的方式连接起来，从而可以通过`%RBP`访问最顶层的栈，随后基于固定的偏移值（+8）来逐层获取所有栈——**调用栈回溯stack walking**
+  注意：AMD64 ABI指出使用`%RBP`是冗余的，因此通常GCC等编译器会默认忽略栈帧指针，而将`%RBP`用作通用寄存器，通过编译时`-fno-omit-frame-pointer`可以显式要求使用`%RBP`
+  ![bpf2](images/bpf2.png)
+2. **符号Symbols**
+   当前内核仅记录栈回溯时的地址，随后在用户空间将地址转换成对应的符号（例如函数名等），因此有可能会出现记录时的地址与翻译时符号对应的地址不一致的情况
+   未来有可能在内核直接进行地址到符号的转换
+
+### 火焰图
+
+[火焰图flame graph](http://www.brendangregg.com/flamegraphs.html)是最重要的性能数据可视化方式之一
+
+假定进行定时对栈采样10次，结果如下：
+
+```text
+   1          2          7
+func_e              
+func_d                func_c
+func_b     func_b     func_b
+func_a     func_a     func_a
+```
+
+则可以转换成这样的火焰图：
+
+![bpf3](images/bpf3.png)
+
+- **每一个方块代表栈中的一个函数**（即一个stack frame）
+- **Y轴**：从底层往上就是调用栈从底部到顶部，即**函数的调用关系**
+- **X轴**：宽度代表每个**函数出现在每次采样中的比例**，注意这不代表时间上从左到右是调用的先后，图中`func_c`在`func_d`前面并不是先调用`func_c`再调用`func_d`，**从左到右的函数排序只是字母顺序**
+
+**每个函数顶部未被其他函数覆盖的长度就是每个函数自身的性能开销，越宽越有可能是性能瓶颈（the widest towers）**，例如：
+
+- `func_a`几乎被`func_b`完全覆盖近似没有开销
+- `func_b`在图中左侧大约有20%的耗时
+- `func_c`在图中中间大约有70%的耗时
+- `func_d`几乎被`func_e`完全覆盖近似没有开销
+- `func_e`在图中右侧顶部大约有10%的耗时
+
+通常火焰图还会支持一些高级特性如下：
+
+- **颜色 color palettes**：不同色调hue代表函数种类（用户、内核、库等等），不同饱和度saturation代表不同函数名（相同函数名的饱和度相同以区分不同的函数），背景色background表示火焰图种类帮助识别（蓝色代表IO、红色代表CPU等）
+- **提示 mouse-overs**：当鼠标掠过某个函数时展示额外的提示
+- **缩放 zoom**：可以选择某个函数名作为最底层的函数，只显式该函数上方的所有调用关系与耗时
+- **搜索 search**
+
+### kprobes
+
+### uprobes
+
+### Tracepoints
+
+### USDT
 
 ## 3. 性能分析 Performance Analysis
 
