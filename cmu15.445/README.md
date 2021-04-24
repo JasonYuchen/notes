@@ -107,7 +107,10 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 12 - Query Execution I
 
-`TODO`
+- processing models
+- accessing methods
+
+[here](12.Query_Execution_I.md)
 
 ## Lecture 13 - Query Execution II
 
