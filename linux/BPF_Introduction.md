@@ -140,6 +140,37 @@ func_a     func_a     func_a
 
 ### kprobes
 
+kprobes提供了Linux内核的动态探测功能，能够**对生产环境下的内核进行实时探测**而不需要重启系统或是以特殊模式运行内核，另外可以使用kretporbes对函数返回进行探测，从而**基于kprobes和kretprobes的时间差就可以直接探测函数的运行时间**
+
+1. **kprobes接口**
+   - kprobe API：例如`register_kprobe()`等
+   - /sys/kernel/debug/tracing/kprobe_events：通过对该文件写入配置字符串来控制kprobe
+   - `perf_event_open()`：实际上已经在`perf`工具中使用
+2. **BPF和kprobes**
+   - BCC：提供了`attach_kprobe()`和`attach_kretprobe()`
+   - bpftrace：提供了`kprobe`和`kretprobe`类型
+
+   例如BCC中提供了`vfsstat`工具来探测对VFS的调用情况，其实现就是利用了`attach_kprobe()`：
+
+   ```text
+   # vfsstat
+   TIME READ/s WRITE/s CREATE/s OPEN/s FSYNC/s
+   07:48:16: 736 4209 0 24 0
+   07:48:17: 386 3141 0 14 0
+   07:48:18: 308 3394 0 34 0
+   07:48:19: 196 3293 0 13 0
+   07:48:20: 1030 4314 0 17 0
+   07:48:21: 316 3317 0 98 0
+   [...]
+
+   # grep attach_ vfsstat.py
+   b.attach_kprobe(event="vfs_read", fn_name="do_read")
+   b.attach_kprobe(event="vfs_write", fn_name="do_write")
+   b.attach_kprobe(event="vfs_fsync", fn_name="do_fsync")
+   b.attach_kprobe(event="vfs_open", fn_name="do_open")
+   b.attach_kprobe(event="vfs_create", fn_name="do_create")
+   ```
+
 ### uprobes
 
 ### Tracepoints
