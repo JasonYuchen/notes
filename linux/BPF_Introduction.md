@@ -144,7 +144,7 @@ kprobes提供了Linux内核的动态探测功能，能够**对生产环境下的
 
 1. **kprobes接口**
    - kprobe API：例如`register_kprobe()`等
-   - /sys/kernel/debug/tracing/kprobe_events：通过对该文件写入配置字符串来控制kprobe
+   - `/sys/kernel/debug/tracing/kprobe_events`：通过对该文件写入配置字符串来控制kprobe
    - `perf_event_open()`：实际上已经在`perf`工具中使用
 2. **BPF和kprobes**
    - BCC：提供了`attach_kprobe()`和`attach_kretprobe()`
@@ -172,6 +172,36 @@ kprobes提供了Linux内核的动态探测功能，能够**对生产环境下的
    ```
 
 ### uprobes
+
+uprobes与kprobes类似，提供了**用户态函数的动态探测功能**，另外可以使用uretprobes对函数返回进行探测
+
+1. **uprobes接口**
+   - `/sys/kernel/debug/tracing/uprobe_events`：通过对该文件写入配置字符串来控制uprobe
+   - `perf_event_open()`：实际上已经在`perf`工具中使用
+2. **BPF和uprobes**
+   - BCC：提供了`attach_uprobe()`和`attach_uretprobe()`
+   - bpftrace：提供了`uprobe`和`uretprobe`类型
+
+   例如BCC中提供了`gethostlatency`工具来探测DNS解析延迟（基于对`getaddrinfo/gethostbyname`探测），其实现就是利用了`attach_uprobe()`和`attach_uretprobe()`的时间差计算延迟：
+
+   ```text
+   # gethostlatency
+   TIME     PID   COMM            LATms HOST
+   01:42:15 19488 curl            15.90 www.brendangregg.com
+   01:42:37 19476 curl            17.40 www.netflix.com
+   01:42:40 19481 curl            19.38 www.netflix.com
+   01:42:46 10111 DNS Res~er #659 28.70 www.google.com
+
+   # grep attach_ gethostlatency.py
+   b.attach_uprobe(name="c", sym="getaddrinfo", fn_name="do_entry", pid=args.pid)
+   b.attach_uprobe(name="c", sym="gethostbyname", fn_name="do_entry",
+   b.attach_uprobe(name="c", sym="gethostbyname2", fn_name="do_entry",
+   b.attach_uretprobe(name="c", sym="getaddrinfo", fn_name="do_return",
+   b.attach_uretprobe(name="c", sym="gethostbyname", fn_name="do_return",
+   b.attach_uretprobe(name="c", sym="gethostbyname2", fn_name="do_return"
+   ```
+
+注意：uprobes可以探测一些调用极其频繁的操作，例如`malloc()/free()`，但也**会带来额外的性能开销**，极端情况下可能导致应用程序性能下降十倍，一些其他探测用户态函数的功能（LTTng-UST等）正在被探讨和研究
 
 ### Tracepoints
 
