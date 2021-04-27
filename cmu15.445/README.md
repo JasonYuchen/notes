@@ -114,7 +114,10 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 13 - Query Execution II
 
-`TODO`
+- query parallelism
+- I/O parallelism
+
+[here](13.Query_Execution_II.md)
 
 ## Lecture 14 - Query Planning & Optimization I
 
