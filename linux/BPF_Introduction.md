@@ -205,6 +205,35 @@ uprobes与kprobes类似，提供了**用户态函数的动态探测功能**，�
 
 ### Tracepoints
 
+Tracepoints用于kernel的静态探测，需要开发者手动在内核函数中嵌入检查点，因此相对更为复杂与繁琐，与kprobes相比：
+
+|Detail|krpobes|Tracepoints|
+|:-|:-|:-|
+|Type|Dynamic|Static|
+|Rough # of events|50k+|100+|
+|Kernel maintenance|None|Required|
+|Disabled overhead|None|Tiny|
+|Stable API|No|Yes|
+
+由于Tracepoints提供稳定的API，因此通常内核升级后也可以继续使用原API，**尝试首先使用Tracepoints，功能不足时再考虑kprobes**
+
+1. **Tracepoint接口**
+   - Ftrace-based，通过`/sys/kernel/debug/tracing/events`下的一些列目录中文件进行开启和关闭，每个文件对应不同的tracepoint
+   - `perf_event_open()`：实际上已经在`perf`工具中使用
+2. **Tracepoint和BPF**
+   - BCC：提供了`TRACEPOINT_PROBE()`
+   - bpftrace：提供了`tracepoint probe`类型
+
+   例如BCC中提供了`tcplife`工具来探测TCP会话的细节：
+
+   ```text
+   # tcplife
+   PID   COMM       LADDR        LPORT RADDR        RPORT  TX_KB  RX_KB    MS
+   22597 recordProg 127.0.0.1    46644 127.0.0.1    28527    0      0     0.23
+   3277  redis-serv 127.0.0.1    28527 127.0.0.1    46644    0      0     0.28
+   22598 curl       100.66.3.172 61620 52.205.89.26 80       0      1     91.79
+   ```
+
 ### USDT
 
 ## 3. 性能分析 Performance Analysis
