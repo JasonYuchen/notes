@@ -121,7 +121,10 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 14 - Query Planning & Optimization I
 
-`TODO`
+- relational algebra equivalences
+- logical plan optimization
+
+[here](14.Query_Planning_I.md)
 
 ## Lecture 15 - Query Planning & Optimization II
 
