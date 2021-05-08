@@ -236,6 +236,29 @@ Tracepoints用于kernel的静态探测，需要开发者手动在内核函数中
 
 ### USDT
 
+User-level Statically Defined Tracing, USDT用于user space的静态探测，而用在应用程序中的静态探测实际上非常多，很多库/项目都有自用的一整套基础设施用于探测事件
+
+1. **USDT和BPF**
+   - BCC：提供了`USDT().enable_probe()`
+   - bpftrace：提供了`usdt probe`类型
+
+### 性能监测 PMCs
+
+性能监测计数器Performance Monitoring Counters, PMCs（也被称为Performance Instrumentation Counters, PICs或CPU Performance Counters, CPCs）是一组**CPU硬件级别的可编程计数器用于探测CPU性能表现**，以Intel为例：
+
+|Event Name|UMask|Event Select|
+|:-|:-|:-|
+|UnHalted Core Cycles|00H|3CH|
+|Instruction Retired|00H|C0H|
+|UnHalted Reference Cycles|01H|3CH|
+|LLC References|4FH|2EH|
+|LLC Misses|41H|2EH|
+|Branch Instruction Retired|00H|C4H|
+|Branch Misses Retired|00H|C5H|
+
+- **Counting Mode**：此模式下PMCs追踪事件的发生率，kernel可以直接从计数器中读取相应的值，额外开销近似于0
+- **Overflow Sampling Mode**：此模式下PMCs可以发送中断给kernel，从而kernel就可以收集各种状态，但是需要特别注意中断的频率，探测某些操作可能会导致每秒数百万次中断导致近似停机，通常是采用计数器达到阈值时才发送一次中断的方式（例如每10000LLC缓存未命中就发送一次中断）
+
 ## 3. 性能分析 Performance Analysis
 
 `TODO`
