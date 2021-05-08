@@ -261,7 +261,45 @@ User-level Statically Defined Tracing, USDT用于user space的静态探测，而
 
 ## 3. 性能分析 Performance Analysis
 
-`TODO`
+### 目标 Goals
+
+- **延迟 Latency**
+- **频率 Rate**
+- **吞吐量 Throughput**
+- **利用率 Utilization**
+- **代价 Cost**
+
+### 性能测试的方法 Performance Methodologies
+
+- **工作负载特征 Workload Characterization**：首先需要描述工作负载的特征，才可以为后续的分析做准备，不同的工作负载会影响程序不同的方面（CPU密集型、I/O密集型等）
+- **逐步深入分析 Drill-Down Analysis**：从一个指标值入手，将其分解为一系列构成这个值的部分，随后继续选择影响最大的部分继续分解，直到找到根本原因root cause
+- **USE方法**：对每个资源需要检查Utilization、Saturation、Errors，首先需要画出整个应用程序涉及到的所有硬软件资源，然后对每个资源检查USE
+
+### Linux 60秒分析方法
+
+对于任一台性能存在问题的Linux服务器，都可以执行下列命令，在60秒内就可以分析出很多问题
+
+1. `uptime`：快速查看**系统负载**情况，系统负载表示为当前希望得到运行的任务/进程数量，三个数字分别是1-min/5-min/15-min的指数衰减值
+2. `dmesg | tail`：默认显示最近的10条系统消息，可能会有`Out of memory: Kill...`、`TCP: Possible SYN flooding...`等**性能相关的日志**
+3. `vmstat 1`：展示**虚拟内存的统计信息**，参数`1`代表展示一秒内的统计和，第一行代表系统自启动以来的统计和，每一列的含义如下
+   - `r`：当前正在CPU上运行的进程数量，因此当数值超过实际CPU核数时代表系统CPU饱和
+   - `free`：空闲的内存量
+   - `si, so`：交换区换入swap-ins/换出swap-outs的数量，当不为零时说明内存已不足，系统正在使用交换空间
+   - `us, sy, id, wa, st`：将CPU时间分解为user，system(kernel)，idle，wait I/O，stolen(by other guests/Xen/etc)
+4. `mpstat -P ALL 1`：将**每个CPU核心的时间分解为不同的状态**（usr/sys/etc），例如CPU 0的`%usr`列是100，就说明了有个单线程的程序正在运行并完全占用CPU 0
+5. `pidstat 1`：展示**每个进程的CPU使用情况**
+6. `iostat -xz 1`：展示存储设备的I/O指标，每一列的含义如下
+   - `r/s, w/s, rkB/s, wkB/s`：分别代表该设备的I/O读的频率、写的频率、每秒读取、每秒写入
+   - `await`：I/O请求的平均时间，包含了每个请求的排队时间以及处理时间，应用程序对该值很敏感
+   - `avgqu-sz`：发送给设备的平均请求数量
+   - `%util`：设备的利用率，即设备在工作的时间占总时间比例，超过60%往往就意味着性能下降，接近100%就是饱和
+7. `free -m`：展示可用的内存量
+8. `sar -n DEV 1`：展示网络设备的指标，发送/接收数据量
+9. `sar -n TCP,ETCP 1`：展示TCP的指标，每一列的含义如下
+   - `active/s`：每秒本地打开的TCP连接数（`connect()`）
+   - `passive/s`：每秒远程打开的TCP连接数（`accept()`）
+   - `retrans/s`：每秒的TCP重传次数
+10. `top`：展示系统和各进程的汇总信息，可以与上述命令的结果进行对比确认
 
 ## 4. BCC
 
