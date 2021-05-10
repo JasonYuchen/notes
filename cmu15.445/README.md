@@ -128,7 +128,10 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 15 - Query Planning & Optimization II
 
-`TODO`
+- cost-based query planning
+- plan enumeration
+
+[here](15.Query_Planning_II.md)
 
 ## Lecture 16 - Concurrency Control Theory
 
