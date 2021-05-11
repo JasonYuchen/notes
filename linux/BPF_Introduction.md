@@ -301,6 +301,20 @@ User-level Statically Defined Tracing, USDT用于user space的静态探测，而
    - `retrans/s`：每秒的TCP重传次数
 10. `top`：展示系统和各进程的汇总信息，可以与上述命令的结果进行对比确认
 
+### BCC工具简述
+
+1. `execsnoop`：显示新进程的创建情况（每个`execve`系统调用会输出一行），对于生命期较短的进程，其他检测工具可能难以捕获到，但频繁的创建销毁进程同样会有资源消耗
+2. `opensnoop`：显示文件的打开情况（每个`open`及衍生系统调用会输出一行）
+3. `ext4slower/xfsslower/zfsslower`：显示文件系统（`ext4slower`对EXT4文件系统）的处理情况（reads/writes/opens/syncs）
+4. `biolatency`：显示磁盘I/O请求的延迟及分布情况
+5. `biosnoop`：显示每一个磁盘I/O请求的处理细节，包括延迟等情况
+6. `cachestat`：显示文件系统缓存的情况
+7. `tcpconnect`：显示TCP对远端发起连接的情况（每个`connect`调用会输出一行）
+8. `tcpaccept`：显示TCP接受远端连接的情况（每个`accept`调用会输出一行
+9. `tcpretrans`：显示TCP重传的情况，每次重传都会输出一行
+10. `runqlat`：显示线程等待被执行的等待时间（run queue latency）
+11. `profile`：类似`perf`，固定频率采样所有线程的栈，从而可以知道当前最消耗CPU的是哪个线程的哪些代码
+
 ## 4. BCC
 
 `TODO`
