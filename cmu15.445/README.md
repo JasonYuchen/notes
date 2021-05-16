@@ -135,7 +135,9 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 16 - Concurrency Control Theory
 
-`TODO`
+- ACID
+
+[here](16.Concurrency_Control.md)
 
 ## Lecture 17 - Two-Phase Locking Concurrency Control
 
