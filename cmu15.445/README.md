@@ -141,7 +141,9 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 17 - Two-Phase Locking Concurrency Control
 
-`TODO`
+- 2PL
+
+[here](17.Two_Phase_Locking.md)
 
 ## Lecture 18 - Timestamp Ordering Concurrency Control
 
