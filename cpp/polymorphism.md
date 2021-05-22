@@ -125,4 +125,100 @@ int main() {
 
 ### 奇异递归模板模式 CRTP
 
-`TODO`
+CRTP通过派生类继承基类且自身就是基类的特化，从而提供了静态多态的方式，**基类的所有方法就会被通过静态转换成派生类的方法**，免除了虚函数调用
+
+```c++
+// https://stackoverflow.com/questions/4173254/what-is-the-curiously-recurring-template-pattern-crtp
+template<typename T>
+struct Base {
+  void foo() {
+    (static_cast<T*>(this))->foo();
+  }
+}
+
+struct Derived1 : public Base<Derived1> {
+  void foo() {
+    std::cout << "derived 1 foo" << std::endl;
+  }
+}
+
+struct Dervied2 : public Base<Derived2> {
+  void foo() {
+    std::cout << "derived 2 foo" << std::endl;
+  }
+}
+
+template<typename T>
+void process(Base<T>* b) {
+  b->foo();
+}
+
+int main()
+{
+  Derived1 d1;
+  Derived2 d2;
+  process(&d1); // output: derived 1 foo
+  process(&d2); // output: derived 2 foo
+  return 0;
+}
+```
+
+C++11中提供了共享所有权的智能指针`std::shared_ptr`，而当一个类方法需要向外提供自身的智能指针时，不能简单的直接`return std::shared_ptr<T>(this)`（显然会导致自身被不同的智能指针单独管理从而出现内存错误）
+
+标准库提供了`std::enable_shared_from_this<T>`来解决，也是利用了CRTP的原理，其用法如下：
+
+```c++
+class Foo : public std::enable_shared_from_this<Foo> {
+ public:
+  void do() {
+    std::shared_ptr<Foo> sp{std::shared_from_this()};
+    // do domething with sp
+  }
+}
+```
+
+`std::enable_shared_from_this`的原理就是在基类中使用`weak_ptr`来记录需要`shared_from_this`的类，并且在构造过程中，判断是否来自`weak_ptr`：
+
+```c++
+// simplified source code from libstdc++
+template<typename T>
+class enable_shared_from_this {
+ public:
+  shared_ptr<T> shared_from_this() {
+    return shared_ptr<T>(this->weak_this);
+  }
+ private:
+  template<typename>
+  friend class shared_ptr;
+
+  template<typename U>
+  void _M_weak_assign(U* p, const shared_count<>& n) {
+    weak_this._M_assign(p, n);
+  }
+
+  mutable weak_ptr<T> weak_this;
+};
+
+template<typename _Yp, typename _Yp2 = typename remove_cv<_Yp>::type>
+typename enable_if<__has_esft_base<_Yp2>::value>::type
+_M_enable_shared_from_this_with(_Yp* __p) noexcept
+{
+    // 假如是继承了enable_shared_from_this的基类，就初始化weak_ptr
+    if(auto __base = __enable_shared_from_this_base(_M_refcount, __p))
+        __base->_M_weak_assign(const_cast<_Yp2*>(__p), _M_refcount);
+}
+
+template<typename _Yp, typename _Yp2 = typename remove_cv<_Yp>::type>
+typename enable_if<!__has_esft_base<_Yp2>::value>::type
+_M_enable_shared_from_this_with(_Yp*) noexcept { }
+
+// from shared_ptr_base.h class __weak_ptr, derived by weak_ptr
+
+void _M_assign(_Tp* __ptr, const __shared_count<_Lp>& __refcount) noexcept {
+  // 第一个使用该对象的负责初始化其weak_ptr
+  if (use_count() == 0) {
+    _M_ptr = __ptr;
+    _M_refcount = __refcount;
+  }
+}
+```
