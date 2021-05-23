@@ -142,6 +142,7 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 ## Lecture 17 - Two-Phase Locking Concurrency Control
 
 - 2PL
+- deadlock detection & prevention
 
 [here](17.Two_Phase_Locking.md)
 
