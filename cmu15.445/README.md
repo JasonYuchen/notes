@@ -13,9 +13,9 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
    - LRU Replacement Policy ✅
    - Buffer Pool Manager ✅
 3. **B+ Tree Index**
-   - B+ Tree Pages
-   - B+ Tree Data Structure
-   - Index Iterator
+   - B+ Tree Pages ✅
+   - B+ Tree Data Structure ✅
+   - Index Iterator ✅
    - Concurrent Index
 4. **Query Execution**
    - System Catalog
@@ -148,7 +148,10 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 18 - Timestamp Ordering Concurrency Control
 
-`TODO`
+- timestamp ordering
+- optimistic concurrency control
+
+[here](18.Timestamp_Ordering.md)
 
 ## Lecture 19 - Multi-Version Concurrency Control
 
