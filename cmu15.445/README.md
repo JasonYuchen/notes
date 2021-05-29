@@ -16,7 +16,7 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
    - B+ Tree Pages ✅
    - B+ Tree Data Structure ✅
    - Index Iterator ✅
-   - Concurrent Index
+   - Concurrent Index ✅
 4. **Query Execution**
    - System Catalog
    - Executors
