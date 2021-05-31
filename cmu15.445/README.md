@@ -25,6 +25,8 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
    - Deadlock Detection
    - Concurrent Query Execution
 
+具体踩坑过程见此[记录](Project.md)，遵守CMU的课程要求，源码不开放
+
 ## Lecture 01 - Course Introduction and the Relational Model
 
 - relational model
