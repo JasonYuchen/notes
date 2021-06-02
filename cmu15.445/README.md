@@ -18,8 +18,8 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
    - Index Iterator ✅
    - Concurrent Index ✅
 4. **Query Execution**
-   - System Catalog
-   - Executors
+   - System Catalog ✅
+   - Executors ✅
 5. **Concurrency Control**
    - Lock Manager
    - Deadlock Detection

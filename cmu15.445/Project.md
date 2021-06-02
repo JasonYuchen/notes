@@ -58,8 +58,8 @@ bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
 
 ## 4. **Query Execution**
 
-- System Catalog
-- Executors
+- System Catalog ✅
+- Executors ✅
 
 实现系统元数据表以及流水线式的查询执行器，具体包括：
 
@@ -73,8 +73,64 @@ bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
 - 聚合算子 Aggregation
 - 限制算子 Limit
 
+一些注意点如下：
+
+- 在`Catalog`中应抛出的是`std::out_of_range`而不是`Exception(ExceptionType::OUT_OF_RANGE)`
+- `INSERT/UPDATE/DELETE`不应该有返回的结果，在对应的`executor`执行后不应该将无效的`Tuple`加入到`result_set`，因此这三个操作的`Next`总是返回`false`
+- `UPDATE`如果更新的数据列上有索引，则应该同时更新索引，先删除旧值，再插入新值
+- 嵌套循环连接算子注意需要保存当前内外表的处理位置，因为`Next`需要从上次的位置开始继续查找下一个能连接的`Tuple`
+
+    ```C++
+    while (true) {
+      Tuple tmp_inner_tuple;
+      RID tmp_inner_rid;
+      if (next_left_) {
+        next_left_ = false;
+        if (!left_executor_->Next(&tmp_outer_tuple_, &tmp_outer_rid_)) {
+          done_ = true;
+          return false;
+        }
+      }
+      while (right_executor_->Next(&tmp_inner_tuple, &tmp_inner_rid)) {
+        // iterate inner table to find a match
+        return true;
+      }
+      // don't forget to re-init the inner table executor for the next re-iteration
+      right_executor_->Init();
+      next_left_ = true;
+    }
+    ```
+
+- 所有会输出结果的执行器都应该根据`OutputSchema`重新组织将输出的`Tuple`，根据每一列的`Expression`进行`Evaluate*`来获取对应的数据：
+
+    ```C++
+    std::vector<Value> values;
+    for (const auto &column : output_schema->GetColumns()) {
+      values.emplace_back(column.GetExpr()->Evaluate(&origin, origin_schema));
+      // For join
+      values.emplace_back(column.GetExpr()->EvaluateJoin(&left, left_schema, &right, right_schema));
+      // For aggregation
+      values.emplace_back(column.GetExpr()->EvaluateAggregate(group_bys, aggregates));
+    }
+    return Tuple(std::move(values), output_schema);
+    ```
+
+- 聚合算子的核心是在`Init`时就完成结果的计算，`Next`只是使用`SimpleAggregationHashTable::Iterator`逐个输出：
+
+    ```C++
+    void AggregationExecutor::Init() {
+      aht_ = std::make_unique<SimpleAggregationHashTable>(plan_->GetAggregates(), plan_->GetAggregateTypes());
+      Tuple tmp_tuple;
+      RID tmp_rid;
+      while (child_->Next(&tmp_tuple, &tmp_rid)) {
+        aht_->InsertCombine(MakeKey(&tmp_tuple), MakeVal(&tmp_tuple));
+      }
+      aht_iterator_ = aht_->Begin();
+    }
+    ```
+
 ## 5. **Concurrency Control**
 
- - Lock Manager
- - Deadlock Detection
- - Concurrent Query Execution
+- Lock Manager
+- Deadlock Detection
+- Concurrent Query Execution
