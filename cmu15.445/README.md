@@ -152,6 +152,7 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 - timestamp ordering
 - optimistic concurrency control
+- isolation level
 
 [here](18.Timestamp_Ordering.md)
 
