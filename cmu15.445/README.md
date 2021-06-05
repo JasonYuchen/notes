@@ -158,7 +158,11 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 19 - Multi-Version Concurrency Control
 
-`TODO`
+- version storage
+- garbage collection
+- index management
+
+[here](19.MVCC.md)
 
 ## Lecture 20 - Logging Protocols + Schemes
 
