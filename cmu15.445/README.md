@@ -21,9 +21,9 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
    - System Catalog ✅
    - Executors ✅
 5. **Concurrency Control**
-   - Lock Manager
-   - Deadlock Detection
-   - Concurrent Query Execution
+   - Lock Manager ✅
+   - Deadlock Detection ✅
+   - Concurrent Query Execution ✅
 
 具体踩坑过程见此[记录](Project.md)，遵守CMU的课程要求，源码不开放
 
