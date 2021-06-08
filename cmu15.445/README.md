@@ -166,7 +166,10 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 20 - Logging Protocols + Schemes
 
-`TODO`
+- write-ahead log, WAL
+- checkpoint/snapshot
+
+[here](20.Logging.md)
 
 ## Lecture 21 - Crash Recovery Algorithm
 
