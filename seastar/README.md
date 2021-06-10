@@ -1,5 +1,9 @@
 # seastar
 
+- Seastar in action
+- Seastar source code insights
+- Various interesting technical blogs from Scylla team
+
 1. [Introduction](Introduction.md)
 
 1. [Build & test seastar](Setup.md)
