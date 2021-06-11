@@ -22,3 +22,11 @@
 10. [Batch Processing](10.Batch_Processing.md)
 11. [Stream Processing](11.Stream_Processing.md)
 12. [The Future of Data Systems](12.The_Future_of_Data_Systems.md)
+
+## EX. Making Sense of Stream Processing
+
+1. [Events and Stream Processing](EX.Making_Sense_of_Stream_Processing.md#事件与流处理)
+2. [Using Logs to Build a Solid Data Infrastructure](EX.Making_Sense_of_Stream_Processing.md#基于日志的数据基础设施)
+3. [Integrating Databases and Kafka with Change Data Capture](EX.Making_Sense_of_Stream_Processing.md#变化数据捕获)
+4. The Unix Philosophy of Distributed Data
+5. [Turning the Database Inside Out](EX.Making_Sense_of_Stream_Processing.md#再看数据库)
