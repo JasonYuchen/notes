@@ -173,7 +173,9 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 21 - Crash Recovery Algorithm
 
-`TODO`
+- ARIES
+
+[here](21.Recovery.md)
 
 ## Lecture 22 - Introduction to Distributed Databases
 
