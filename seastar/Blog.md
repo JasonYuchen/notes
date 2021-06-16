@@ -8,14 +8,14 @@
 
 ## Benchmark a database
 
-`TODO`
-
 [Best Practices for Benchmarking Scylla](https://www.scylladb.com/2021/03/04/best-practices-for-benchmarking-scylla/)
 
 - set throughput target
 - how to measure latency correctly
 - number of threads
 - number of connections
+
+[notes](BenchmarkDB.md)
 
 ## Userspace File System
 
