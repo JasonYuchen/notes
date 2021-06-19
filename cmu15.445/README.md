@@ -179,11 +179,19 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 22 - Introduction to Distributed Databases
 
-`TODO`
+- parallel vs. distributed
+- system architectures
+- partitioning schemes
+
+[here](22.Distributed.md)
 
 ## Lecture 23 - Distributed OLTP Database Systems
 
-`TODO`
+- atomic commit
+- replication
+- consistency
+
+[here](23.Distributed_OLTP.md)
 
 ## Lecture 24 - Distributed OLAP Dataase Systems
 
