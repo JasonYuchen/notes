@@ -52,7 +52,29 @@
 
 ## 变化数据捕获 Integrating Databases and Kafka with Change Data Capture
 
-`TODO`
+1. **变化数据捕获 Change Data Capture, CDC**
+   由于通过日志流的方式整合使用多个数据源是异步化的，这会导致原先直接使用数据库的一致性不能被保证（只能达到最终一致性），除了分布式系统常见的2PC协议，还可以通过变化数据捕获CDC来达成原先的一致性，即数据依然首先访问数据库，而**数据库的数据变化被捕获并且以日志流的方式传递给其他系统**
+
+   ![EX5](images/ex5.png)
+
+2. **数据库就是变化的日志**
+   实际上数据库数据的变化本身也可以视作是一个日志，**数据库就是记录变化的日志**，如同数据库主从同步时使用的replication log就是一种将变化输出的方式，即CDC，CDC的实现就需要数据库能够输出两种文件给其他系统：
+   - 数据库某一个点的**一致性快照consistent snapshot**
+   - 从一致性快照之后的所有**实时变化日志real-time stream of changes**
+3. **实现快照和变化流**
+   使用MVCC机制可以实现不阻塞用户读写的快照
+
+   ![EX6](images/ex6.png)
+
+4. **CDC连接PostgreSQL和Kafka**
+   PostgreSQL通过提供了一个**逻辑解码器logical decoding接口**，解析自己的WAL变化并作为CDC提供给外部接口，同时终止/回滚的事务并不会出现在这个接口上，因此只要严格按照logical decoding提供的事件，就能实现和PostgreSQL达成一致
+   Kafka的日志压缩log compaction实现了永久保留每个key最新的值，旧的值会被不断的垃圾回收，因此可以随意部署新的系统作为订阅者，从而获得所有最新数据，此时访问Kafka就和访问原来的数据库一样
+   当新索引建立完全后，就可以**逐步将用户读流量迁移到新索引上**，整个过程平滑且可靠
+
+   ![EX7](images/ex7.png)
+
+5. **逻辑解码器**
+   由于PostgreSQL提供的logical decoding只会根据事务提交的顺序输出响应的数据变化记录，而事务处理可能由于并发是交织的，因此logical decoding会**根据WAL以及事务提交的顺序重新组织数据变化记录**，确保记录输出的顺序与提交一致，而其他数据源如果直接解析WAL，可能需要考虑到并发事务，手动处理不同事务的数据修改记录
 
 ## 分布式数据的UNIX哲学 The Unix Philosophy of Distributed Data
 
