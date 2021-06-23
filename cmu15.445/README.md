@@ -195,8 +195,17 @@ With extra materials from cs186 (UCB) and comp7104 (HKU)
 
 ## Lecture 24 - Distributed OLAP Dataase Systems
 
-`TODO`
+- execution model
+- query planning
+- distributed join
+
+[here](24.Distributed_OLAP.md)
 
 ## Lecture 26 - Final Review / Other Systems
 
-`TODO`
+- Amazon DynamoDB
+- Cassandra
+- mongoDB
+- review
+
+[here](25.Final_Review.md)
