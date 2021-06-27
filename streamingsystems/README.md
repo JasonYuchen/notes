@@ -9,7 +9,7 @@ The What, Where, When, and How of large-scale data processing
 1. **[Streaming 101](01.Streaming_101.md)**
    - basics of stream processing
    - common data processing patterns
-2. **[The What, Where, When, and How of Data Processing]**
+2. **[The What, Where, When, and How of Data Processing](02.What_Where_When_How.md)**
    - detail and core concepts of robust stream processing
 3. **[Watermarks]**
    - temporal progress metrics
