@@ -102,7 +102,7 @@ A userspace disk I/O scheduler in seastar
   - [part 1](https://www.scylladb.com/2016/04/14/io-scheduler-1/)
   - [part 2](https://www.scylladb.com/2016/04/29/io-scheduler-2/)
 - Stage 2 (2021.01.28-, [Project Circe](https://www.scylladb.com/2021/01/28/project-circe-january-update/))
-  - [blog](https://www.scylladb.com/2021/04/06/scyllas-new-io-scheduler/) `TODO`
+  - [blog](https://www.scylladb.com/2021/04/06/scyllas-new-io-scheduler/)
 
 [notes](https://github.com/JasonYuchen/notes/blob/master/seastar/Disk_IO_Scheduler.md)
 
@@ -124,6 +124,6 @@ Performance improvement when conditionally `wake_up` other threads, an interesti
 
 ## On Coordinated Omission
 
-`TODO`
-
 [On Coordinated Omission](https://www.scylladb.com/2021/04/22/on-coordinated-omission/)
+
+[notes](Coordinated_Omission.md)
