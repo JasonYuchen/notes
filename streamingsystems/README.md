@@ -14,7 +14,7 @@ The What, Where, When, and How of large-scale data processing
 3. **[Watermarks](03.Watermarks.md)**
    - temporal progress metrics
    - 2 real-world implementation ()
-4. **[Advanced Windowing]**
+4. **[Advanced Windowing](04.Advanced_Windowing.md)**
    - processing-time windows, sessions
    - continuation triggers
 
