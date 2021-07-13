@@ -82,4 +82,27 @@
 
 ## 再看数据库 Turning the Database Inside Out
 
-`TODO`
+1. **数据库如何被使用**
+   - **副本 Replication**
+     通过replication log将变化同步给从节点，但是replication log本质上也和事件溯源event sourcing一样，是一个对象的状态改变过程
+   - **次级索引 Secondary Indexes**
+     数据库内部根据基本表创建出次级索引，本质上是基本表的另一种表示形式而没有数据变化，因此只需要一条SQL语句就可以完成次级索引的同步
+   - **缓存 Caching**
+     缓存存在诸多问题，例如
+     - **失效 Invalidation**：当数据库数据改变时，应该淘汰哪一条失效的缓存，对于复杂的数据来说很难实现缓存淘汰算法
+     - **竞争 Race conditions**：多个客户端频繁并发访问缓存和数据库时，缓存可能就会与数据库出现不一致inconsistency
+     - **冷启动 Cold start**：如果系统刚启动，缓存没有预热，所有访问都出现缓存未命中cache miss，对系统和数据库负担极大
+   - **物化视图 Materialized Views**
+     物化视图本质上也是对SQL语句结果的缓存，将可能经常运行的SQL语句的结果直接保存成表来加速下次调用，同时由数据库来保证当原始数据改变时，相应的物化视图也会更新
+2. **物化视图：自更新的缓存 Materialized Views: Self-Updating Caches**
+   利用**日志流的方式**实现一个物化视图作为一种自更新的缓存
+
+   ![ex8](images/ex8.png)
+
+   基于日志log-centric的系统更像是所有组件都独立的**一个"无限制Unbundled"分布式数据库**，每一个模块都可以独立开发、扩展，如同Unix哲学，每个程序只做好简单的一件事，通过组合来实现强大的功能
+3. **直至用户接口的流 Streaming All the Way to the User Interface**
+   所有数据的改变，都类似一个流，逐级向用户更新，最后底层的修改就显示在用户的眼前
+
+   ![ex9](images/ex9.png)
+
+   **从传统的`Request <-> Response`模式转变为基于流数据的`Subscribe <-> Notify`模式**
