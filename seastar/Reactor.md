@@ -195,45 +195,215 @@ reactor引擎的实际使用与执行流程都在`class reactor`中，而支撑�
     ```
 
 - `reactor::run_some_tasks()`
+  该函数实际执行流程为**将activating queues移动到active queues中，并在被抢占前`need_preempt() == false`连续运行task queue的任务**，下列代码还包含了各种统计信息、CPU暂停检测等代码
 
     ```C++
-    TODO
+    void reactor::run_some_tasks() {
+        if (!have_more_tasks()) {
+            return;
+        }
+        sched_print("run_some_tasks: start");
+        reset_preemption_monitor();
+
+        sched_clock::time_point t_run_completed = std::chrono::steady_clock::now();
+        STAP_PROBE(seastar, reactor_run_tasks_start);
+        _cpu_stall_detector->start_task_run(t_run_completed);
+        do {
+            auto t_run_started = t_run_completed;
+            // 1. 这里就会将所有activating queues移动到active queues中
+            insert_activating_task_queues();
+            task_queue* tq = pop_active_task_queue(t_run_started);
+            sched_print("running tq {} {}", (void*)tq, tq->_name);
+            tq->_current = true;
+            _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
+            // 2. 执行当前task queue中的所有任务
+            run_tasks(*tq);
+            tq->_current = false;
+            t_run_completed = std::chrono::steady_clock::now();
+            auto delta = t_run_completed - t_run_started;
+            account_runtime(*tq, delta);
+            sched_print("run complete ({} {}); time consumed {} usec; final vruntime {} empty {}",
+                    (void*)tq, tq->_name, delta / 1us, tq->_vruntime, tq->_q.empty());
+            tq->_ts = t_run_completed;
+            // 若本次没有执行完当前task queue的所有任务，将此task queue重新加入到active queues下次继续执行
+            if (!tq->_q.empty()) {
+                insert_active_task_queue(tq);
+            } else {
+                tq->_active = false;
+            }
+            // 3. continue executing tasks if not preempted
+        } while (have_more_tasks() && !need_preempt());
+        _cpu_stall_detector->end_task_run(t_run_completed);
+        STAP_PROBE(seastar, reactor_run_tasks_end);
+        *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
+        sched_print("run_some_tasks: end");
+    }
     ```
 
 - `reactor::run_tasks()`
+  运行任务的核心就是调用`task::run_and_dispose()`，一次跨核任务的[执行示例](Message_Passing.md)中，第五步省略的reactor执行过程就是这里
 
     ```C++
-    TODO
+    void reactor::run_tasks(task_queue& tq) {
+        // Make sure new tasks will inherit our scheduling group
+        *internal::current_scheduling_group_ptr() = scheduling_group(tq._id);
+        auto& tasks = tq._q;
+        while (!tasks.empty()) {
+            auto tsk = tasks.front();
+            tasks.pop_front();
+            STAP_PROBE(seastar, reactor_run_tasks_single_start);
+            task_histogram_add_task(*tsk);
+            _current_task = tsk;
+            tsk->run_and_dispose();
+            _current_task = nullptr;
+            STAP_PROBE(seastar, reactor_run_tasks_single_end);
+            ++tq._tasks_processed;
+            ++_global_tasks_processed;
+            // check at end of loop, to allow at least one task to run
+            if (need_preempt()) {
+                if (tasks.size() <= _max_task_backlog) {
+                    break;
+                } else {
+                    // While need_preempt() is set, task execution is inefficient due to
+                    // need_preempt() checks breaking out of loops and .then() calls. See
+                    // #302.
+                    reset_preemption_monitor();
+                }
+            }
+        }
+    }
     ```
 
 - `reactor::sleep() & reactor::wakeup()`
+  **当负载较低保持一定时间后，reactor引擎就会自动转入中断处理模式**，此时每个poller都要进入中断模式，中断模式下reactor的唤醒则是通过监听的`_notify_eventfd`来触发的，中断模式具体的中断方式由底层reactor backend实现，例如`reactor_backend_epoll::wait_and_process_events()`中就是使用了Linux Epoll的`epoll_wait`，`reactor_backend_aio::wait_and_process_events()`中则是使用了Linux AIO的`io_pgetevents`
+
+  底层都会监听`_notify_eventfd`从而可以在上层调用`reactor::wakeup()`时唤醒reactor backend从`wait_and_process_events`中恢复轮询执行模式
 
     ```C++
-    TODO
+    void reactor::sleep() {
+        for (auto i = _pollers.begin(); i != _pollers.end(); ++i) {
+            auto ok = (*i)->try_enter_interrupt_mode();
+            if (!ok) {
+                // 回滚此前已进入sleep的poller，所有poller必须保持一致
+                while (i != _pollers.begin()) {
+                    (*--i)->exit_interrupt_mode();
+                }
+                return;
+            }
+        }
+
+        // 进入底层reactor_backend的sleep模式
+        _backend->wait_and_process_events(&_active_sigmask);
+
+        // 被唤醒后离开sleep模式并开始处理事件
+        for (auto i = _pollers.rbegin(); i != _pollers.rend(); ++i) {
+            (*i)->exit_interrupt_mode();
+        }
+    }
+
+    void reactor::wakeup() {
+        uint64_t one = 1;
+        ::write(_notify_eventfd.get(), &one, sizeof(one));
+    }
+    ```
+
+reactor的上层使用者实际提交各种任务时，会使用的函数：
+
+- `schedule(task* t) & reactor::add_task(task* t)`
+  `add_task`实际上只是根据调度组id将task加入对应的task queue，对应的`add_urgent_task`在流程上完全一样，但是与此不同的是后者在函数体内额外使用了`memory::scoped_critical_alloc_section _`，含义是**此作用域内不应该出现内存分配失败**，如果在此作用域内出现分配失败并且启用了内存诊断，就会dump出内存诊断报告
+
+    ```C++
+    void schedule(task* t) noexcept {
+        engine().add_task(t);
+    }
+
+    void add_task(task* t) noexcept {
+        // 不同的task分属于不同的scheduling group
+        // 每个scheduling group根据id可以获得自己的task queue
+        // 同时每个scheduling group可以设置运行任务的配额share，来实现不同group之间的调度运行
+        auto sg = t->group();
+        auto* q = _task_queues[sg._id].get();
+        bool was_empty = q->_q.empty();
+        q->_q.push_back(std::move(t));
+    #ifdef SEASTAR_SHUFFLE_TASK_QUEUE
+        shuffle(q->_q.back(), *q);
+    #endif
+        if (was_empty) {
+            // 若原先是没有任务的，此时加入了任务就需要activate加入activating queues
+            activate(*q);
+        }
+    }
     ```
 
 - `reactor::activate(task_queue& tq)`
+  `activate`只会在`add_task/add_urgent_task`中被使用，用于原先没有task的task queue在收到task时直接激活加入`_activating_task_queues`，并会更新一些统计信息，另外因为此函数是task queue在没有任务时收到第一个任务时会被调用，通常是network/disk I/O的任务而不是CPU任务
 
     ```C++
-    TODO
+    void reactor::activate(task_queue& tq) {
+        if (tq._active) {
+            return;
+        }
+        sched_print("activating {} {}", (void*)&tq, tq._name);
+        // If activate() was called, the task queue is likely network-bound or I/O bound, not CPU-bound. As
+        // such its vruntime will be low, and it will have a large advantage over other task queues. Limit
+        // the advantage so it doesn't dominate scheduling for a long time, in case it _does_ become CPU
+        // bound later.
+        //
+        // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
+        if (_last_vruntime > tq._vruntime) {
+            sched_print("tq {} {} losing vruntime {} due to sleep", (void*)&tq, tq._name, _last_vruntime - tq._vruntime);
+        }
+        tq._vruntime = std::max(_last_vruntime, tq._vruntime);
+        auto now = std::chrono::steady_clock::now();
+        tq._waittime += now - tq._ts;
+        tq._ts = now;
+        _activating_task_queues.push_back(&tq);
+    }
     ```
 
-reactor的使用者实际提交各种任务的函数：
+reactor另外提供的一些功能：
 
-- `schedule(task* t)`
-
-    ```C++
-    TODO
-    ```
-
-- `reactor::add_task(task* t)`
+- `reactor::add_timer/del_timer`
+  计时器相关的功能，其实现就是调用了reactor backend的`arm_highres_timer`，添加一个timer的流程如下：
 
     ```C++
-    TODO
+    void reactor::add_timer(timer<steady_clock_type>* tmr) noexcept {
+        // 所有timers由timer_set数据结构进行管理，当新增的timer其过期时间小于当前最近过期时间时
+        // 就需要直接调用enable_timer进行更新backend timerfd的触发时间
+        if (queue_timer(tmr)) {
+            enable_timer(_timers.get_next_timeout());
+        }
+    }
+
+    bool reactor::queue_timer(timer<steady_clock_type>* tmr) noexcept {
+        // timer_set针对大量reschedule和cancel任务做了额外优化：延迟对timer的过期时间排序直到有timer触发
+        // 理由是正常工作负载下expiration非常少见
+        return _timers.insert(*tmr);
+    }
+
+    void reactor::enable_timer(steady_clock_type::time_point when) noexcept
+    {
+        itimerspec its;
+        its.it_interval = {};
+        its.it_value = to_timespec(when);
+        _backend->arm_highres_timer(its);
+    }
     ```
 
 ## `reactor_backend`
 
 `reactor_backend`实际上实现了上述reactor引擎所需的各种功能接口，而底层有多种实现，在seastar中有基于Linux AIO的`reactor_backend_aio`、基于Linux epoll的`reactor_backend_epoll`、基于OSv的`reactor_backend_osv`
 
-[io uring](https://github.com/JasonYuchen/notes/blob/master/linux/io_uring.md)是Linux新一代的IO机制，解决了Linux AIO的诸多问题，seastar后续也将加入[基于Linux io uring的实现](https://www.scylladb.com/2020/05/05/how-io_uring-and-ebpf-will-revolutionize-programming-in-linux/)，因此这里主要分析与io uring更为相近的`reactor_backend_aio`（`TODO:`后续待seastar完善基于io uring的实现时会补充相关内容）
+[io uring](https://github.com/JasonYuchen/notes/blob/master/linux/io_uring.md)是Linux新一代的IO机制，解决了Linux AIO的诸多问题，seastar后续也将加入[基于Linux io uring的实现](https://www.scylladb.com/2020/05/05/how-io_uring-and-ebpf-will-revolutionize-programming-in-linux/)，因此这里主要分析更为接近的Linux AIO实现`reactor_backend_aio`（`TODO:`后续待seastar完善基于io uring的实现时会补充相关内容）
+
+### `class reactor_backend_aio`
+
+`TODO`
+
+### `class reactor_backend_epoll`
+
+`TODO`
+
+### `class reactor_backend_iouring`
+
+`TODO`
