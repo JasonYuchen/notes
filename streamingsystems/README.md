@@ -20,7 +20,7 @@ The What, Where, When, and How of large-scale data processing
 
 ## Part II. Streams and Tables
 
-5. **[Exactly-Once and Side Effects]**
+5. **[Exactly-Once and Side Effects](05.Exactly_Once.md)**
    - end-to-end exactly-once (effectively-once)
    - 3 read-world implementation (Apache Flink, Apache Spark, Google Cloud Dataflow)
 6. **[Streams and Tables]**
