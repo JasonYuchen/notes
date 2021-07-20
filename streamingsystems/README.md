@@ -23,7 +23,7 @@ The What, Where, When, and How of large-scale data processing
 5. **[Exactly-Once and Side Effects](05.Exactly_Once.md)**
    - end-to-end exactly-once (effectively-once)
    - 3 read-world implementation (Apache Flink, Apache Spark, Google Cloud Dataflow)
-6. **[Streams and Tables]**
+6. **[Streams and Tables](06.Streams_And_Tables.md)**
    - revisit MapReduce
    - the Beam Model (and beyond)
 7. **[The Practicalities of Persistent State]**
