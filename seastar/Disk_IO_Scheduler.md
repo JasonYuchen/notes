@@ -251,6 +251,23 @@ fair_queue_ticket fair_group_rover::maybe_ahead_of(const fair_group_rover& other
 
 [brief](https://www.scylladb.com/2021/01/28/project-circe-january-update/)
 
+[detail](https://www.scylladb.com/2021/04/06/scyllas-new-io-scheduler/)
+
+磁盘通常可以用两个维度来描述其性能：**IOPS**和**throughput**，通常所有IO密集的程序应尽可能避免耗尽磁盘处理能力——overwhelming the disk，这种状态下磁盘请求堆积且无法区分出请求的重要性，例如对于Scylla这种数据库系统来说，前台查询的性能至关重要，而后台数据清理等IO操作则可以作为低优先级任务执行，尽可能降低前台查询请求的延迟
+
+Seastar采用了[无共享shared nothing](Introduction.md)的设计，并在开始时采用了[IO coordinator的设计](#part-ii-调度器的设计-seastar-disk-io-scheduler-design---the-io-queues)尽可能提高磁盘的利用率而不过载
+
+![ioscheduler8](images/sn11.png)
+
+- **不可避免的跨核通信延迟**（`non-coordinator <-> coordinator`）
+  seastar的任务调度时间片是0.5ms，则在最坏情况下IO请求会额外有1ms的跨核延迟，这样的延迟在**现代NVMe磁盘上已经非常可观**，以及在如果需要**取消IO请求**时也必须进行跨核通信
+- **单个Coordinator无法解决skew**
+  Multiple IO Coordinators的设计静态均分了磁盘的所有带宽和吞吐量，则当某个Coordinator特别繁忙而其他较空闲时，磁盘利用率过低，即出现**IO请求偏差skew**，但是如果全局只使用单个Coordinator时，虽然可以解决skew的问题，但是会显著加大Coordinator所在shard的负担，影响其其他任务，单个shard可能无法完全利用上磁盘
+
+新的IO Scheduler有两个核心设计：**避免跨核通信、充分利用磁盘**
+
+### IO Group
+
 原先的IO Scheduler设计中，数个shards共享一个`IO Queue`，并且实际持有`IO Queue`的shard称为coordinator，而其他shards需要通过消息通信message passing的方式将IO请求提交给coordinator
 
 所有`IO Queue`均分物理磁盘的IOPS和bandwidth限制，而`IO Queue`最多情况下会与shards一一对应，即每个shard都是coordinator，**当IO请求数量在`IO Queue`层面不均匀时依然有可能出现磁盘浪费**，如下图：
@@ -259,11 +276,25 @@ fair_queue_ticket fair_group_rover::maybe_ahead_of(const fair_group_rover& other
 
 并且由于non-coordinator需要跨核通信，不仅有可能带来**IO请求延迟的上升**，而且**复杂化了Cancellation**——需要将cancellation事件也跨核通信
 
-[IO Scheduler 2.0的设计中](https://groups.google.com/g/seastar-dev/c/HyMWhmF4EPw/m/nsqpVEcnCgAJ)，引入了共享IO容量的设计
+[IO Scheduler 2.0的设计中](https://groups.google.com/g/seastar-dev/c/HyMWhmF4EPw/m/nsqpVEcnCgAJ)，引入了共享IO容量，即`IO Group`的设计
+
+每个IO Group管理多个shards的磁盘IO请求配额（**shards通过IO Group对象申请和归还IO请求额度**，一个系统可以有多个IO Group对象）：当shard需要进行IO时，首先从所属的`IO Group`申请所需额度，若不满足则等到额度足够时再执行（另一个IO请求完成并且归还额度时）
+
+![ioscheduler9](images/ioscheduler9.png)
 
 **每个shard持有自己的`IO Queue`，而多个`IO Queue`则共享一个`IO Group`，每个`IO Group`都可以配置成物理磁盘的容量限制**，默认情况下每个NUMA节点对应一个`IO Group`包含该NUMA节点的所有shards，当某个shard发起IO请求时，就从其`IO Queue`所在的`IO Group`获取配额，当该IO请求完成时再将配额还给`IO Group`，从而每个shard都能完全利用上磁盘如下图：
 
 ![new-scheduler](images/ioscheduler7.png)
+
+### Capacity Rovers
+
+在IO负载过重，有shard需要等待时，简单的等待额度并不可行，例如多个shard都在等待时，**必须保证公平性fairness**而不是一旦有额度就随机选择执行（会导致**饥饿**）
+
+为了实现所有等待的shards能够得到公平的运行，采用了类似TCP窗口的设计，**每个shard实际等待在IO额度链上的某个点**，构成类似队列的先后关系，从而在IO额度被释放时，队列中较前的shard首先被得到执行
+
+head rover和tail rover则是两个原子变量，每个shard都需要参与更新这两个原子变量，显然更新原子变量的过程是可能发生竞争的（原子变量的CAS操作是乐观并发机制），因此理论上存在"幸运"的shard成功率比其他shards要高，从而能够运行更多的IO请求，这种情况**在NUMA架构下是非常明显的**，需要更新remote NUMA node的rover延迟显著高于更新local NUMA node的rover，从而remote NUMA node几乎很难成功
+
+因此为了在NUMA架构下也尽可能协调所有shards的IO请求，通常**每个NUMA节点至少有一个IO Group对象**管理该节点的所有shards，此时每个NUMA节点的IO Group又回到了IO Scheduler最初始的IO Queue的设计——**静态均分了磁盘带宽**
 
 `IO Group`内的磁盘容量分配不能简单采用`atomic::fetch_add/fetch_sub`，因为**当超出限制时，后续持续请求IO请求的shards能够实际得到执行的顺序无法得到保障**，可能会出现某个shard饥饿
 
@@ -322,35 +353,8 @@ bool fair_queue::grab_pending_capacity(fair_queue_ticket cap) noexcept {
 }
 ```
 
-## Part V: 深入新调度器 New IO Scheduler In Depth
+## Part V: 磁盘非线性带宽 Support for non-linear disk bandwidth
 
-[original post](https://www.scylladb.com/2021/04/06/scyllas-new-io-scheduler/)
+在[Part III](#part-iii-进一步降低延迟-better-latencies-under-any-circumstance)中提到的问题并没有被完全解决，默认了磁盘的读和写请求的性能接近，假定了1次128KiB的请求等同于2次64KiB请求，这些都与实际情况不完全相同
 
-磁盘通常可以用两个维度来描述其性能：**IOPS**和**throughput**，通常所有IO密集的程序应尽可能避免耗尽磁盘处理能力——overwhelming the disk，这种状态下磁盘请求堆积且无法区分出请求的重要性，例如对于Scylla这种数据库系统来说，前台查询的性能至关重要，而后台数据清理等IO操作则可以作为低优先级任务执行，尽可能降低前台查询请求的延迟
-
-Seastar采用了[无共享shared nothing](Introduction.md)的设计，并在开始时采用了[IO coordinator的设计](#part-ii-调度器的设计-seastar-disk-io-scheduler-design---the-io-queues)尽可能提高磁盘的利用率而不过载
-
-![ioscheduler8](images/ioscheduler8.png)
-
-- **不可避免的跨核通信延迟**（`non-coordinator <-> coordinator`）
-  seastar的任务调度时间片是0.5ms，则在最坏情况下IO请求会额外有1ms的跨核延迟，这样的延迟在**现代NVMe磁盘上已经非常可观**，以及在如果需要**取消IO请求**时也必须进行跨核通信
-- **单个Coordinator无法解决skew**
-  Multiple IO Coordinators的设计静态均分了磁盘的所有带宽和吞吐量，则当某个Coordinator特别繁忙而其他较空闲时，磁盘利用率过低，即出现**IO请求偏差skew**，但是如果全局只使用单个Coordinator时，虽然可以解决skew的问题，但是会显著加大Coordinator所在shard的负担，影响其其他任务，单个shard可能无法完全利用上磁盘
-
-新的IO Scheduler有两个核心设计：**避免跨核通信、充分利用磁盘**
-
-### IO Groups
-
-引入IO Groups的概念，每个IO Group管理多个shards的磁盘IO请求配额（**shards通过IO Group对象申请和归还IO请求额度**，一个系统可以有多个IO Group对象）：当shard需要进行IO时，首先从所属的IO Group申请所需额度，若不满足则等到额度足够时再执行（另一个IO请求完成并且归还额度时）
-
-![ioscheduler9](images/ioscheduler9.png)
-
-简单的等待额度并不可行，例如多个shard都在等待时，**必须保证公平性fairness**而不是一旦有额度就随机选择执行（会导致**饥饿**）
-
-### Capacity Rovers
-
-为了实现所有等待的shards能够得到公平的运行，采用了类似TCP窗口的设计，**每个shard实际等待在IO额度链上的某个点**，构成类似队列的先后关系，从而在IO额度被释放时，队列中较前的shard首先被得到执行
-
-head rover和tail rover则是两个原子变量，每个shard都需要参与更新这两个原子变量，显然更新原子变量的过程是可能发生竞争的（原子变量的CAS操作是乐观并发机制），因此理论上存在"幸运"的shard成功率比其他shards要高，从而能够运行更多的IO请求，这种情况**在NUMA架构下是非常明显的**
-
-因此为了在NUMA架构下也尽可能协调所有shards的IO请求，通常**每个NUMA节点至少有一个IO Group对象**管理该节点的所有shards，此时每个NUMA节点的IO Group又回到了IO Scheduler最初始的IO Queue的设计——**静态均分了磁盘带宽**
+[TODO](https://groups.google.com/g/seastar-dev/c/8WNR4GLskGY)
