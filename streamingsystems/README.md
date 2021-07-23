@@ -26,7 +26,7 @@ The What, Where, When, and How of large-scale data processing
 6. **[Streams and Tables](06.Streams_And_Tables.md)**
    - revisit MapReduce
    - the Beam Model (and beyond)
-7. **[The Practicalities of Persistent State]**
+7. **[The Practicalities of Persistent State](07.The_Practicalities_Of_Persistent_State.md)**
    - persistent state in streaming pipelines
    - a general state management mechanism
 8. **[Streaming SQL]**
