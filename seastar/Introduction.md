@@ -4,12 +4,13 @@
 
 ## Shared-nothing design
 
+更详细的介绍[Seastar: Shared-nothing Architecture](Shared_Nothing.md)
+
 - **单核性能提升有限，多核成为主流**
-  `TODO`
 - **现代存储网络设备快速发展**
   随着存储和网络设备的急速发展，**基于中断interrupt-driven**的设备已经受CPU的限制而无法达到设计IOPS
   
-  例如高速NIC：一个2GHz主频的处理器处理在10GBps的网卡上1024bytes的包，每个包仅有1670个处理器时钟周期，而一次中断就会产生**上下文切换context switch**等毫秒级的延迟，绕过内核并解放CPU的[DPDK](https://www.dpdk.org)应运而生
+  例如高速NIC：一个2GHz主频的处理器处理在10GBps的网卡上1024bytes的包，每个包仅有1670个处理器时钟周期，而一次中断就会产生**上下文切换context switch**等微秒级的延迟，绕过内核并解放CPU的[DPDK](https://www.dpdk.org)应运而生
 
   例如高速SSD：RocksDB的IOPS已经受限于CPU而不是存储设备，[KVell的设计](https://github.com/JasonYuchen/notes/blob/master/papers/2019_SOSP_KVell.md)也证实了这一点
 
