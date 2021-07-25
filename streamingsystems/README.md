@@ -29,7 +29,7 @@ The What, Where, When, and How of large-scale data processing
 7. **[The Practicalities of Persistent State](07.The_Practicalities_Of_Persistent_State.md)**
    - persistent state in streaming pipelines
    - a general state management mechanism
-8. **[Streaming SQL]**
+8. **[Streaming SQL](08.Streaming_SQL.md)**
    - the meaning of streaming within the context of SQL
    - incorporate robust streaming semantics in SQL
 9.  **[Streaming Joins]**
