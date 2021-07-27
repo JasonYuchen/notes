@@ -1,116 +1,25 @@
 # Notes
 
-## ddia
+Notes about various courses, projects, books, papers, topics, blogs, etc.
 
-Martin Kleppmann: Design Data Intensive Applications
-
-[here](https://github.com/JasonYuchen/notes/tree/master/ddia)
-
-## consistency
-
-Dive into various consistency models
-
-[here](https://github.com/JasonYuchen/notes/tree/master/consistency)
-
-## raft
-
-Diego Ongaro: Consensus - bridging theory and practice
-
-[here](https://github.com/JasonYuchen/notes/tree/master/raft)
-
-## mit6.824
-
-[Distributed Systems Engineering](https://pdos.csail.mit.edu/6.824/schedule.html) is a course for MIT computer science students
-
-[here](https://github.com/JasonYuchen/notes/tree/master/mit6.824)
-
-## seastar
-
-[seastar](http://seastar.io) - an advanced C++ framework for high-performance server applications on modern hardware
-
-[here](https://github.com/JasonYuchen/notes/tree/master/seastar)
-
-## os
-
-Abraham Silberschatz: Operating System Concept
-
-[here](https://github.com/JasonYuchen/notes/tree/master/os)
-
-## network
-
-James F. Kurose: Computer Networking A Top Down Approach
-
-## tcpip
-
-W.Richard Stevens: TCP/IP Illustrated Volume 1
-
-[here](https://github.com/JasonYuchen/notes/tree/master/tcpip1)
-
-## consensus
-
-Heidi Howard: Distributed Consensus Revised
-
-## coroutine
-
-[Lewis Baker: Asymmetric Transfer](https://lewissbaker.github.io/) contains several blogs with examples introducing coroutines in C++20
-
-[here](https://github.com/JasonYuchen/notes/tree/master/coroutine)
-
-## concurrency
-
-Anthony Williams: C++ Concurrency In Action
-Brian Goetz: Java Concurrency in Practice
-
-## cmu 15-445
-
-[Database Systems](https://15445.courses.cs.cmu.edu/fall2020/) is a course for cmu computer science students
-
-[here](https://github.com/JasonYuchen/notes/tree/master/cmu15.445)
-
-## ds
-
-Mark Allen Weiss: Data Structures & Algorithm Analysis in C++
-
-[here](https://github.com/JasonYuchen/notes/tree/master/ds)
-
-## brpc
-
-[brpc](https://github.com/apache/incubator-brpc/tree/master/docs/cn) is a C++ RPC library open sourced by baidu
-
-[here](https://github.com/JasonYuchen/notes/tree/master/brpc)
-
-## linux
-
-Various linux-related notes (e.g. epoll, io_uring)
-
-[here](https://github.com/JasonYuchen/notes/tree/master/linux)
-
-## dragonboat
-
-[dragonboat](https://github.com/lni/dragonboat) is a high performance multi-group Raft consensus library in pure Go
-
-[here](https://github.com/JasonYuchen/notes/tree/master/dragonboat)
-
-## papers
-
-Miscellaneous papers:
-
-- [KVell: the Design and Implementation of a Fast Persistent Key-Value Store](papers/2019_SOSP_KVell.md) SOSP '19
-- [An Analysis of Performance Evolution of Linux's Core Operations](papers/2019_SOSP_Syscall.md) SOSP '19
-- [Log-structured Memory for DRAM-based Storage](papers/2014_FAST_Log_Structured_Memory.md) FAST '14
-
-Papers in mit6.824:
-
-- [MapReduce: Simplified Data Processing on Large Clusters](mit6.824/MapReduce.md) OSDI '04
-- [The Google File System](mit6.824/GFS.md) SOSP '03
-- [The Design of a Practical System for Fault-Tolerant Virtual Machines](mit6.824/Fault_Tolerant_VM.md) SIGOPS '10
-- [ZooKeeper: Wait-free coordination for Internet-scale systems](mit6.824/ZooKeeper.md) ATC '10
-- [Object Storage on CRAQ - High-throughput chain replication for read-mostly workloads](mit6.824/CRAQ_Chain_Replication.md) ATC '09
-- [Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases](mit6.824/Aurora.md) SIGMOD '17
-- [Frangipani: A Scalable Distributed File System](mit6.824/Frangipani.md) SOSP '97
-- [Spanner: Google's Globally Distributed Database](mit6.824/Spanner.md) TOCS '13
-- [No compromises: distributed transactions with consistency, availability, and performance](mit6.824/FaRM.md) SOSP '15
-- [Resilient Distributed Datasets: A Fault-Tolerant Abstraction for In-Memory Cluster Computing](mit6.824/Spark.md) NSDI '12
-- [Scaling Memcache at Facebook](mit6.824/Memcached_FB.md) NSDI '13
-- [Don't Settle for Eventual: Scalable Causal Consistency for Wide-Area Storage with COPS](mit6.824/COPS.md) SOSP '11
-- [Bitcoin: A Peer-to-Peer Electronic Cash System](mit6.824/Bitcoin.md)
+|Folder|Source|Description|
+|:-|:-|:-|
+|**brpc**|project|[brpc](https://github.com/apache/incubator-brpc/tree/master/docs/cn) library is a C++ RPC library open sourced by Baidu|
+|**cmu15.445**|course|[Database Systems](https://15445.courses.cs.cmu.edu/fall2020/) is a course for cmu computer science students|
+|**comp7801**|course|Advanced Data Management Topics is a course offered by hku (not open sourced)|
+|**concurrency**|book|*C++ Concurrency In Action*, Anthony Williams; *Java Concurrency in Practice*, Brian Goetz|
+|**consistency**|blog|dive into various consistency models ([jepsen](https://jepsen.io/))|
+|**coroutine**|blog|[Asymmetric Transfer, Lewis Baker](https://lewissbaker.github.io/) wrote several blogs with examples introducing coroutines in C++20|
+|**cpp**|multiple|miscellaneous topics of C/C++|
+|**ddia**|book|*Design Data Intensive Applications*, Martin Kleppmann|
+|**dragonboat**|project|a high performance multi-group Raft consensus library in pure Go|
+|**ds**|book|*Data Structures & Algorithm Analysis in C++*, Mark Allen Weiss|
+|**linux**|blog|miscellaneous topics of linux (e.g. bpf, epoll, io_uring)|
+|**mit6.824**|course|[Distributed Systems Engineering](https://pdos.csail.mit.edu/6.824/schedule.html) is a course for MIT computer science students|
+|**os**|book|*Operating System Concept*, Abraham Silberschatz|
+|**papers**|paper|miscellaneous conference papers|
+|**raft**|thesis|*Concensus - Bridging Theory and Practice*, Diego Ongaro|
+|**seastar**|project|[an advanced C++ framework](http://seastar.io) for high-performance server applications on modern hardware|
+|**streamingsystems**|book|*Streaming Systems*, Akidau, Slava Chernyak, and Reuven Lax|
+|**tcpip1**|book|*TCP/IP Illustrated Volume 1*, W.Richard Stevens|
+|**tools**|N/A|some usefull tools for taking notes|
