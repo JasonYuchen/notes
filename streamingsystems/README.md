@@ -32,7 +32,7 @@ The What, Where, When, and How of large-scale data processing
 8. **[Streaming SQL](08.Streaming_SQL.md)**
    - the meaning of streaming within the context of SQL
    - incorporate robust streaming semantics in SQL
-9.  **[Streaming Joins]**
+9.  **[Streaming Joins](09.Streaming_Joins.md)**
     - various different join types within the context of streaming
     - temporal validity windows
 10. **[The Evolution of Large-Scale Data Processing]**
