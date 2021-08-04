@@ -1,0 +1,120 @@
+# [2001] Paxos Made Simple
+
+## The Problem
+
+假定一组进程processes可以提出值propose values，**共识算法的目的就是确保这组提交值里只有一个值被选择**（即所有进程对被选择的值达成共识consensus），其安全性要求包括：
+
+- 只有被提出的值才有可能被选择，由 **Proposers** 负责
+- 只有单个值被选择，由 **Acceptors** 负责
+- 任意一个进程只有在某个值被选择后，才能感知到该值（未被选中的值不应该被其他进程感知），由 **Learners** 负责
+
+在本文中不会对**活性liveness**做出要求，但是目标依然是当一个值被选中后，所有进程最终可以感知到
+
+实际实现中，单个进程可以充当一个或多个角色（**proposer、acceptor、learner统称为agent**），并且假定所有消息传递通过异步通信完成，且没有恶意进程，即**非拜占庭模型non-Byzantine model**：
+
+- agents以任意的速度完成工作，可能随时宕机、重启
+- messages以任意延迟抵达通信对端，可能重复、丢失、乱序，但数据本身可靠不会被篡改
+
+## Choosing a Value
+
+显然最简单的选择值的方式就是只有**单个acceptor**作为single source of truth，所有proposers都通过发送proposals给这个acceptor，随后由该acceptor唯一的确认一个值（例如选择第一个收到的proposal），但是这种模型在分布式领域中难堪大用，因为单个acceptor导致了**单点故障SPOF**，一旦acceptor宕机就会导致整个系统无法工作
+
+实际可行的方式是采用一组acceptors，每个proposer发送proposal给每个acceptor，并且**由这组acceptors中的多数majority来选择一个值**（**任意majority至少重叠一个acceptor，而每个acceptor不能同时选择多个值**，从而保证了只要达成accetpors中的majority就可以确保唯一）
+
+在没有消息的丢失和进程宕机的情况下，为了acceptors只选择一个被提出的值，要求：
+
+- **P1**: acceptor一定要选择第一个收到的proposal
+
+P1要求也引入了另一个问题，当多个proposer接近同时提出了多个值，而每个acceptor都选择第一个收到的值，就可能**导致没有一个提案获得了majority**，从而放宽限制允许每个acceptor选择多个提案，但是对不同的提案都需要赋予一个自然数来追踪，从而每个提案包括了**值value**和**提案号proposal number**，并且为了避免冲突**每个提案号应该唯一**（如何对每个提案赋予唯一的提案号由具体实现来确定）
+
+此时acceptor可以接受多个提案，并且只要当某个提案被majority接受时，其对应的值就默认被选中，此时就可能出现多个提案被选中，但是需要确保**被选中的多个提案拥有相同的值**，可以通过保证P2来实现：
+
+- **P2**: 如果某个提案被选中，其对应的值是`v`，则任意提案号更大的被选中的后续提案也包含`v`
+
+由于**提案号是全序的totally ordered**，P2确保了单个值被选中（提案号较小的提案及`v`被majority选中，后续提案号较大的提案必须包含该majority选中的`v`则后续提案号较大的提案也被majority选中），P2可以通过简化的P2A来满足：
+
+- **P2A**：如果某个提案被选中，其对应的值是`v`，则每个被任意acceptor接受的更大提案号的提案都含有`v`
+
+此时依然**需要P1来确保总是有提案被选择**，但是异步通信可以有任意延迟、乱序、丢失，某个不该被接受的提案（不包含`v`）可能被此前没有收到过任何提案的acceptor接受，违背了P2A，则P2A可以被修改为P2B：
+
+- **P2B**：如果某个提案被选中，其对应的值是`v`，则后续每个proposer提出的更大提案号的提案必须含有`v`
+
+假定一个提案带有提案号`m`及值`v`，新提案带有提案号`n`（`n > m`）必须也包含`v`，则需要证明任意提案号在`[m, n-1]`的提案包含了`v`，而提案号`m`的提案需要被选中则一定要存在一个acceptor的majority集合`C`并且其中每个acceptor都接受`m`，整合如下：
+
+- `C`中的每个acceptor都接受了一个提案号在`[m, n-1]`中的提案，并且每个被任意acceptor接受的`[m, n-1]`中的提案都一定含有`v`
+
+由于任意一个包含majority acceptors的集合`S`都一定和`C`（也是一个majority）存在至少一个重合的acceptor，从而可以通过确保P2C来满足P2B，来保证一个提案号`n`的提案包含值`v`：
+
+- **P2C**：对于任意的`v`和`n`，如果一个提案对应的值是`v`且提案号是`n`，则有一个acceptor的majority集合`S`满足以下任意一条：
+  - `S`中的acceptors均没有接受过提案号小于`n`的提案
+  - `S`中所有acceptors已经接受的提案号小于`n`的提案中，提案号最大的提案含有`v`
+
+为了满足P2C，**proposer在提出提案号`n`的提案时，必须感知已经被majority接受的（或将要被接受的）提案号小于`n`的提案中拥有最大提案号的提案**，显然感知已经被接受的提案较为直接，但是预测将要被接受的提案是非常困难的，通过**限制这种提案，即不允许提案号在已经被接受的最大提案号到`n`之间的提案继续被接受**来简化算法，proposer侧算法如下：
+
+1. **准备 prepare**，proposer选择一个新的提案号`n`不带有值`v`并发送请求给某个acceptor集合中的每个成员，并要求收到的acceptor保证：
+   - **不再响应提案号小于`n`的提案**
+   - **返回该acceptor已经接受的最大提案号提案，或没有接受任何提案返回空**
+2. **接受 accept**，若该proposer收到了majority的响应，则其可以发出该提案号为`n`的提案并且带有值`v`（`v`是所有响应中已被接收的提案中提案号最大的提案对应的值），或者任意值（如果所有响应都显示目前没有接受的提案），此次accept请求的目的地acceptors可以不与prepare请求的acceptors相同
+
+acceptor会收到两类请求，即prepare请求和accept请求，acceptor可以随意忽略任意收到的prepare请求而不损害安全性，也总是可以响应prepare请求，而对于accept请求，acceptor只有在**没有保证不响应的时候**可以响应该请求并且接受对应的提案，即P1A：
+
+- **P1A**：acceptor只有在尚未响应一个prepare请求（携带的提案号大于`n`）时可以接受一个提案号为`n`的提案
+
+以上即为acceptor和proposer的完整算法，但还可以有一个小优化如下：假定acceptor收到一个prepare请求带有`n`的提案，该acceptor已经在此前响应了另一个prepare请求带有大于`n`的提案从而不能响应该请求，并且**额外要求该acceptor也忽略携带有它已经接受的提案的prepare请求**，从而**该acceptor只需要记住（持久化以确保能够在宕机重启后依然保持）接受过的最大提案号的提案**即可，而**proposer可以任意丢失提案，只需要每次发起提案的提案号都不同**
+
+完整的算法归纳如下：
+
+- **Phase 1**
+  - proposer选择一个提案号`n`，并发送prepare请求给majority of acceptors
+  - acceptor收到prepare请求时，如果自身已经响应的prepare请求对应的提案号均小于等于`n`，则可以响应该prepare请求并带上已经接受的最大提案号提案或空（没有接受过任何提案），并保证不再响应其他小于`n`的prepare请求
+- **Phase 2**：
+  - proposer收到了提案号为`n`的prepare请求的majority响应，则可以发送accept请求给acceptors，携带有提案号`n`值`v`的提案，`v`是所有prepare响应中提案号最大的提案带有的值`v`，或是任意值（如果所有响应表明都未接受过任何提案）
+  - acceptor收到提案号`n`的accept请求时，只要没有响应过提案号大于`n`的prepare请求，就接受该accept请求
+
+proposer可以一次**发出任意数量的提案**，只要服从上述算法且提案号唯一，并且proposer也可以**中途随意丢弃提案**而不影响正确性（例如当发现已经有其他proposer在使用更大的提案号时主动丢弃较小提案号的提案），从实现的角度来说，也可以优化acceptor的行为，使其在**主动拒绝提案号较小的prepare请求而不是忽略**，使得相应的proposer能感知到当前最大的提案号
+
+## Learning a Chosen Value
+
+最简单的方式就是每当acceptor接受一个提案时，都广播给每一个learner，但是代价就是网络中需要传输acceptor与learner的乘积数量的消息，另一种方式是将learner区分为**normal learner**和**distinguished learner**，每次acceptor接受提案时就通知一组distinguished learners，随后由distinguished learner再广播给normal learners
+
+异步网络中可以出现任意的消息延迟、乱序、丢失，因此有可能出现learner一直没有收到acceptor的接受提案通知，此时**learner也可以选择周期性主动从acceptor上拉取消息**来感知已经被接受的提案信息
+
+## Progress
+
+显然上述算法没有保证系统总是有进展，例如p，q两个proposers始终在增加提案号并发出提案，p对`n1`完成了Phase 1，随后q对`n2 > n1`完成了Phase 1，而p随后的accept请求就会被忽视，因为所有acceptor都保证不再响应`n1 < n2`的请求，从而p就重新开始Phase 1并采用`n3 > n2`，显然q也只能继续`n4 > n3`的Phase 1，**周而复始陷入"活锁"**
+
+为了避免这种清空，需要选择一个**distinguished proposer作为唯一一个可以提出提案的proposer**，被选出的distinguished proposer能够与majority acceptors通信，并且当其发出一个提案带有当前最大提案号时，就能成功完成两个阶段，当其发现有其他更大提案号时只需要重试更大的提案号即可
+
+## The Implementation
+
+实际实现中，每个进程作为proposer、acceptor、learner的角色，并且需要选举出一个**leader节点作为distinguished proposer以及distinguished learner**，稳定存储用来保存acceptor需要记录的信息，即其需要在响应请求前将响应内容response持久化保存，以及保存proposer需要记录的信息，即其目前使用到的最大提案号，每次发起提案时确保使用更大的提案号
+
+所有proposer需要挑选独立的提案号来发起提案，可以通过每个proposer从互不重叠的提案号池中获取提案号，例如5个proposer编号为A-E，则A的提案号序列可以是`1->6->11...`，B的提案号相应就是`2->7->12...`
+
+## Implementing a State Machine
+
+分布式系统的简单实现就是一组clients向中心服务器发送一系列命令commands，而中心服务器被抽象为一个确定性状态机deterministic state machine，从而一系列输入命令可以获得一系列输出结果
+
+由于单个中心服务器会引入SPOF，因此可以采用一组中心服务器，每个中心服务器都维护一个复制状态机replicated state machine，所有clients的请求通过Paxos算法在每个服务器的状态机上执行，从而当任意一个服务器故障时，其余状态机的状态依然保持正确并可以继续响应clients的请求
+
+为了保证所有服务器上的状态机都执行相同顺序的commands，即**对commands序列达成共识**，可以**实现一个Paxos共识序列instances of the Paxos consensus algorithm**，则第`i-th`Paxos实例所选择的值就是第`i-th`状态机需要执行的命令，服务器充当Paxos算法的所有角色proposer、acceptor、learner
+
+正常情况下只有一个服务器充当leader，则所有clients都将commands发送给leader，由leader来决定执行的commands的顺序，而当出现故障例如leader宕机时，就会选举出新的leader（在此前所有Paxos实例中是learner，宕机时实际已经有140条commands出现），对新leader而言应该对绝大多数已经被选择的commands有感知，假定一个流程如下：
+
+1. leader感知到了已经被选择的第1-134, 138-139条commands
+2. leader从而**对135-137以及140-inf发起Paxos Phase I，在Paxos Phase I的响应中它获知了应该被选择的第135，140条commands**（majority acceptor返回了135和140个Paxos实例中的最大提案号提案，而对136-137，141-inf返回空）
+3. leader随后对135和140执行Paxos Phase II以选择这两条commands
+4. 对于位置的136和137，leader可以选择等待随后的clients请求来填充，也可**以直接采用两条`NoOP`指令来填充以允许立即执行后续的命令**，`NoOP`不应该改变状态机的状态
+5. 选择了`NoOP`后，leader就可以对已经选择的1-140+的commands应用到状态机上，而不用等待136和137
+
+核心在于虽然对全局的commands顺序达成了共识，但是实际上**commands顺序与clients的请求顺序并没有严格对应，但在异步网络的假设下本身消息就可以任意延迟、丢弃、乱序**
+
+这种算法的核心在于**每个位置的commands都是单独的Paxos实例，即只要对每个位置的commands达成共识，而达成共识的顺序并不重要**，从而可以**乱序确认commands序列**，即如上述流程的先确认`[1, 134], [138, 139]`，再确认`135, 140`（也可以是`140, 135`）
+
+完成以上流程后，leader就可以自由对第141条及以后执行Paxos Phase II来选择（在上述步骤2中已经完成了Paxos Phase I）commands，并且可以乱序并发发起，即不必等待141的完成就可以发起142的选择，这就有可能在序列中出现gap
+
+## Example
+
+[origin post](https://blog.openacid.com/algo/paxos/)
+
+`TODO`
