@@ -113,7 +113,7 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
 
     从执行流程来看，似乎已经ready的`future`如果在`need_preempt() == true`时就会通过reactor引擎来处理，为什么？
 
-    假如有大量的`future`都是就绪状态并且连续被处理，此时在reactor队列中的其他事件、以及其他需要poll的事件就会面临**饥饿**，因此[为了避免饥饿](https://github.com/scylladb/seastar/blob/master/doc/tutorial.md#ready-futures)，当连续执行一定数量的就绪`future`后就会被reactor引擎抢占执行权
+    假如有大量的`future`都是就绪状态并且连续被处理，此时在reactor队列中的其他事件、以及其他需要poll的事件就会面临**饥饿**，因此[为了避免饥饿](https://github.com/scylladb/seastar/blob/master/doc/tutorial.md#ready-futures)，当连续执行一定数量（当前默认为256个）的就绪`future`后就会被reactor引擎抢占执行权
 
 #### 2. 当这个`future`对象尚未完成时
 
@@ -156,9 +156,24 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
 
 4. 调度后最终在`reactor::run_tasks`中执行了`task::run_and_dispose -> handle::resume`，协程恢复执行
 
+### `all()`
+
+只采用`co_await`单次只能等待一个协程，并且若有多个操作时就需要顺序依次`co_await`，限制了一定的并发性（例如**当需要执行多个I/O请求时，顺序依次等待每一个I/O操作的吞吐量不如一次性等待多个I/O操作，这些I/O操作就有更大的机会被批量执行**）seastar允许一次等待多个协程执行完成（将协程转换成多个"子协程"即**seastar fibers**）：
+
+```C++
+seastar::future<int> parallel_sum(int key1, int key2) {
+    int [a, b] = co_await seastar::coroutine::all(
+        [&] { return read(key1); },
+        [&] { return read(key2); });
+    co_return a + b;
+}
+```
+
+**注意`all`会等待所有子任务执行结束，即使某些抛出了异常**，也会等到所有结束后才将异常向上层抛出，当多个异常一起发生时会选择其中任意一个异常
+
 ### `.then()`
 
-seastar中的`future`可以通过`.then(func)`的方式要求在该`future`就绪时将其结果传递给`func`从而实现串联执行的语法，例如：
+seastar中的`future`可以通过`.then(func)`的方式要求在该`future`就绪时将其结果传递给`func`从而实现串联执行的语法，注意**更推荐采用协程的写法而非`.then()`，协程有更多优越性**，例如：
 
 ```C++
 seastar::future<int> slow() {
@@ -314,3 +329,40 @@ future<> sleep(std::chrono::duration<Rep, Period> dur) {
 
 2. 从对应的`promise`获取`future`对象并返回
 3. 当`future`满足时，清理`sleeper`对象
+
+## 协程中的异常处理
+
+**协程会自动捕获异常并放入到返回的`future`中**，当`co_await`的函数抛出异常时，协程也会直接将异常继续向上抛出：
+
+```C++
+seastar::future<> function_returning_an_exceptional_future();
+
+seastar::future<> exception_handling() {
+    try {
+        co_await function_returning_an_exceptional_future();
+    } catch (...) {
+        // exception will be handled here
+    }
+    throw 3; // will be captured by coroutine and returned as
+             // an exceptional future
+}
+```
+
+对于返回的泛型非空时，即`future<T>`而非`future<>`时，传递异常更**推荐使用以下的返回异常而不使用抛出异常**`throw`（受限于编译器，`future<>`不支持这种做法）：
+
+```C++
+seastar::future<int> exception_propagating() {
+    std::exception_ptr eptr;
+    try {
+        co_await function_returning_an_exceptional_future();
+    } catch (...) {
+        eptr = std::current_exception();
+    }
+    if (eptr) {
+        co_return seastar::coroutine::exception(eptr); // Saved exception pointer can be propagated without rethrowing
+    }
+    co_return seastar::coroutine::make_exception(3); // Custom exceptions can be propagated without throwing
+}
+```
+
+**采用`seastar::defer()`（RAII的方式，参考golang的`defer`）来确保异常情况下也能执行一些清理逻辑**
