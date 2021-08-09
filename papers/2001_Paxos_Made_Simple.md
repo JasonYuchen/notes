@@ -252,9 +252,74 @@ X在尚未完成两阶段Paxos时，Y就介入采用更大的提案号更新了a
 
 [original post](https://zhuanlan.zhihu.com/p/111574502)
 
-## Paxos的优化
+[Phxpaxos](https://github.com/Tencent/phxpaxos)是腾讯微信事业群开源的Multi Paxos实现，其中有一个实现细节与Classic Paxos明显不同，在Classic Paxos原文对Phase I的描述中有：
 
-`TODO`
+> (b) If an acceptor receives a prepare request with number n **greater than** that of  any prepare request to which it has already responded, then it responds to the request with a promise not to accept any more proposals numbered less than n and with the highest-numbered proposal (if any) that it has accepted.
+
+即acceptor只能响应携带有提案号大于自身已经记录的最大提案号的prepare请求，而在Phxpaxos的实现中却采用了`>=`：
+
+```c++
+int Acceptor::OnPrepare(const PaxosMsg &oPaxosMsg)
+{ 
+  // skip
+  BallotNumber oBallot(oPaxosMsg.proposalid(), oPaxosMsg.nodeid());
+  if (oBallot >= m_oAcceptorState.GetPromiseBallot())
+  {
+      // skip
+  }
+  // skip
+}
+```
+
+这样的问题在于有可能出现对**同一个提案号接受了不同的值**，考虑以下场景：
+
+1. proposer A以`n`给所有acceptors发送prepare请求，并且收到了**除了自己以外的节点回复OK**（每个节点均作为proposer、acceptor、learner，自己节点没有OK可以假定磁盘繁忙没有完成持久化因此没有回复）
+2. proposer A以`n, v1`给所有accetpors发送accept请求，并且所有acceptors除了自身都确认`v1`
+3. proposer A此时宕机，并且依然没有完成`n`的持久化，即**proposer A宕机后丢失了关于`n`的信息**
+4. proposer A重启后，**继续选择`n`并发送prepare请求**，由于采用了`>=`因此依然得以收到所有acceptors的确认
+5. proposer A以`n, v2`发送accept请求被接收，**Phase II明确要求可以接受`>=`的accept请求**（必须有`=`否则无法接受Phase I中相等提案号的proposer提出的accept请求就无法正常选择一个值）
+
+很明显上述流程中，proposer A成功的改变了达成共识的`n, v1`，显然违背了安全性，其原因就在于**提案号出现了不唯一的情况**
+
+PhxPaxos中通过**首先持久化prepare请求，随后再广播给其他acceptors，重启后会读取持久化状态避免重用提案号**来避免上述场景的发生：
+
+```C++
+int Base::BroadcastMessage(const PaxosMsg &oPaxosMsg, const int iRunType, const int iSendType)
+{
+    // skip
+    if (iRunType == BroadcastMessage_Type_RunSelf_First)
+    {   // OnReceivePaxosMsg locally first
+        if (m_poInstance->OnReceivePaxosMsg(oPaxosMsg) != 0)
+        {
+            // skip
+        }
+    }
+    // skip
+    // broadcast to others afterwards
+    ret = m_poMsgTransport->BroadcastMessage(m_poConfig->GetMyGroupIdx(), sBuffer, iSendType);
+}
+
+int Acceptor::OnPrepare(const PaxosMsg &oPaxosMsg)
+{
+  // skip
+  m_oAcceptorState.SetPromiseBallot(oBallot);
+  // persist the state
+  int ret = m_oAcceptorState.Persist(GetInstanceID(), GetLastChecksum());
+  if (ret != 0)
+  {
+    // skip
+  }
+  // skip
+}
+```
+
+在现代网络环境中，通常存储层延迟会大于网络通信延迟，采用**先持久化再广播的方式无疑会增加系统延迟**，而这样做的原因一是为了避免上述违背协议的场景，二是为了解决采用`>`的另一个问题：
+
+**采用`>`意味着每次因丢包、超时等任何原因导致的重试都必须增加提案号**，这就导致少数机器出现网络隔离时会不断的增加提案号并重试，当**网络恢复时这些机器携带极大的提案号加入集群会冲击原有集群的leader**，导致需要重新执行Multi Paxos选举新的leader，[类似Raft中的PreVote希望解决的问题](https://github.com/JasonYuchen/notes/blob/master/raft/09.Leader_Election_Evaluation.md#%E9%98%B2%E6%AD%A2%E9%87%8D%E6%96%B0%E5%8A%A0%E5%85%A5%E9%9B%86%E7%BE%A4%E7%9A%84%E8%8A%82%E7%82%B9%E7%A0%B4%E5%9D%8F%E9%9B%86%E7%BE%A4-preventing-disruptions-when-a-server-rejoins-the-cluster)
+
+由于采用了Multi Paxos的模型，系统稳定情况下**Phase I并不会每个Paxos实例都被执行**，因此这里引入的延迟对性能影响非常有限，而在Phase II中PhxPaxos就是在广播accept请求后再执行本地持久化任务
+
+## Paxos的优化
 
 ### Multi-Paxos
 
