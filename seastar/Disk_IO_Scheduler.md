@@ -66,7 +66,7 @@ scylla/seastar通过在运行真正的服务前，首先在系统上运行`iotun
 
 从而seastar的磁盘I/O调度器就需要在考虑`priority classes`时对每个`I/O Queue`进行shards任务的分配和调度
 
-**注意：当前设计已经不再是最新的，TODO: 分析scheduler 2.0的设计，[`--num-io-queues`选项已经被废弃](https://github.com/scylladb/seastar/issues/864)**
+注意：**此版本已经不再是最新的设计**，见下文[scheduler 2.0的设计](#part-iv-避免偏差-new-io-scheduler)，[`--num-io-queues`选项已经被废弃](https://github.com/scylladb/seastar/issues/864)，且[scheduler 3.0的设计](https://groups.google.com/g/seastar-dev/c/8WNR4GLskGY)也正在被讨论
 
 ### 选择队列数量 Choosing the right number of I/O Queues
 
@@ -121,9 +121,8 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     // 持续的I/O请求累计代价使得出现某个priority class的累计代价达到了inf
     // 则需要所有priority class一起重新规范化并计算代价
     while (std::isinf(next_accumulated)) {
-        // 通常一次重新规范化后，所有priority class的_accumalted就足够笑了，因此循环体往往只执行一次
+        // 通常一次重新规范化后，所有priority class的_accumalted就足够小了，此时时间基准base也更新，因此循环体往往只执行一次
         normalize_stats();
-        // If we have renormalized, our time base will have changed. This should happen very infrequently
         delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
         cost  = expf(1.0f/_config.tau.count() * delta.count()) * req_cost;
         next_accumulated = h->_accumulated + cost;
@@ -192,10 +191,14 @@ Scylla在运行时会通过统计数据来找出磁盘的[最佳并发度max use
 
 1. **I/O请求并没有区分读read/写write**，调优的参数只有`--max-io-requests`，并且自适应调优时基于了读reads，而现代硬盘对两者的支持不尽相同，通常对读请求的响应会好于对写请求的响应，那么就可能会出现在一块已经有重的写负载磁盘上执行读时，响应远不及预期
 2. **调优没有考虑请求的大小**，在自适应调优时只使用了固定的4kB读取请求，但实际上不同大小的请求会对最优并发度有较大影响，例如下图，显然对于4k请求和128k请求的最佳并发度并不同，前者在120时依然没有饱和，后者在20时就已经出现了瓶颈
+
    ![ioscheduler4](images/ioscheduler4.png)
+
    ![ioscheduler5](images/ioscheduler5.png)
 
 通常磁盘会提供**IOPS**和带宽**bandwidth**两个指标，例如Samsung SSD 850 PRO的IOPS为95k和512MB/s的读带宽（写入略微少于512MB/s），那么对于95k IOPS的4kB请求会消耗371MB/s的带宽，IOPS首先达到瓶颈；而如果是128kB的请求则仅需4k IOPS就会耗尽带宽，而**IO Scheduler就应该同时监测这两个指标，任一达到瓶颈就说明磁盘已经饱和**
+
+注意：这一部分代码实际上是[IO Scheduler 2.0](#part-iv-新调度器-new-io-scheduler)的代码
 
 ```C++
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
@@ -247,7 +250,7 @@ fair_queue_ticket fair_group_rover::maybe_ahead_of(const fair_group_rover& other
 |P99|36ms|12ms|35ms|6ms|
 |P999|43ms|15ms|36ms|7ms|
 
-## Part IV: 避免偏差 New IO Scheduler
+## Part IV: 新调度器 New IO Scheduler
 
 [brief](https://www.scylladb.com/2021/01/28/project-circe-january-update/)
 
