@@ -271,15 +271,192 @@ future<> f() {
 
 除了可变模板参数的`when_all/when_all_succeed`以外，还可以使用一对迭代器来指定一个任务范围（例如传入`std::vector<future<T>>`的`begin()/end()`）
 
-## 信号 Semaphores
+## 信号量 Semaphores
+
+### 采用信号量来限制并发度 Limiting parallelism with semaphores
+
+采用`thread_local`的方式使得`g()`内部限制最大并发执行量，并且semaphore也是每个shard相互独立的
+
+```C++
+seastar::future<> g() {
+    static thread_local seastar::semaphore limit(100);
+    return limit.wait(1).then([] {
+        return slow(); // do the real work of g()
+    }).finally([] {
+        limit.signal(1);
+    });
+}
+```
+
+在上述代码中，**异常安全非常重要**：
+
+- `.wait(1)`有可能抛出异常（内存耗尽，semaphore需要维护一个等待链表），此时计数器不会减少，同时`.finally()`也不会执行则计数器也不会增加
+- `.wait(1)`有可能返回一个异常future（例如semaphore已经失效，注意与抛出异常相区别），此时对异常future后续调用`.signal(1)`也会没有任何作用
+- `slow()`也有可能抛出异常或返回异常状态，而这不用担心因为`.finally()`一定会执行并维护计数器的值
+
+显然当执行的任务更多，逻辑越来越复杂的情况下合理的维护semaphore也愈加困难，而在**C++中采用RAII语义**能更简洁的确保异常安全，**seastar提供了`seastar::with_semaphore()`来确保异常情况下计数器的值都被正确维护**：
+
+```C++
+seastar::future<> g() {
+    static thread_local seastar::semaphore limit(100);
+    return seastar::with_semaphore(limit, 1, [] {
+        return slow(); // do the real work of g()
+    });
+}
+```
+
+另外也可以使用`seastar::get_unites()`返回特殊的unit对象来确保计数器正常：
+
+```C++
+seastar::future<> g() {
+    static thread_local semaphore limit(100);
+    return seastar::get_units(limit, 1).then([] (auto units) {
+        return slow().finally([units = std::move(units)] {});
+    });
+}
+```
+
+### 限制资源使用 Limiting resource use
+
+semaphore支持传入任意数值，因此也可以用来限制诸如内存等资源的使用：
+
+```C++
+seastar::future<> using_lots_of_memory(size_t bytes) {
+    static thread_local seastar::semaphore limit(1000000); // limit to 1MB
+    return seastar::with_semaphore(limit, bytes, [bytes] {
+        // do something allocating 'bytes' bytes of memory
+    });
+}
+```
+
+### 限制循环并发数 Limiting parallelism of loops
+
+同时执行的循环的并发数也可以通过semaphore来限制，一个简单的循环如下没有任何并发，下一个`slow()`每次都在前一个`slow()`结束时才会开始：
+
+```C++
+seastar::future<> slow() {
+    std::cerr << ".";
+    return seastar::sleep(std::chrono::seconds(1));
+}
+seastar::future<> f() {
+    return seastar::repeat([] {
+        return slow().then([] { return seastar::stop_iteration::no; });
+    });
+}
+```
+
+假设对`slow()`的顺序没有要求，且希望**同时执行多个`slow()`，则可以不关注`slow()`的返回**并每次都直接开始下一个`slow()`如下，此时不等待`slow()`的返回而是一瞬间就开始执行大量的`slow()`，并发数没有任何限制：
+
+```C++
+seastar::future<> f() {
+    return seastar::repeat([] {
+        slow();
+        return seastar::stop_iteration::no;
+    });
+}
+```
+
+采用semaphore可以限制当前正在执行的`slow()`个数：
+
+- 在这里无法使用单个`thread_local`的semaphore，因为`f()`可以调用多次且每次调用都需要独立限制底层并发执行`slow()`的数量，因此采用`do_with()`
+- 调用`seastar::futurize_invoke(slow)`的返回值并没有被返回，即不等待`slow()`的结果，只要semaphore有额度就直接开始下一个`slow()`
+- 在这里无法使用`with_semaphore()`，因为该函数必须等到lambda结束时才能操作semaphore的计数器，从而`slow()`必须顺序执行而不能并发
+- 在这个场景下也可以使用`get_units()`
+
+```C++
+seastar::future<> f() {
+    return seastar::do_with(seastar::semaphore(100), [] (auto& limit) {
+        return seastar::repeat([&limit] {
+            return limit.wait(1).then([&limit] {
+                seastar::futurize_invoke(slow).finally([&limit] {
+                    limit.signal(1); 
+                });
+                return seastar::stop_iteration::no;
+            });
+        });
+    });
+}
+
+seastar::future<> f() {
+    return seastar::do_with(seastar::semaphore(100), [] (auto& limit) {
+        return seastar::repeat([&limit] {
+            return seastar::get_units(limit, 1).then([] (auto units) {
+                slow().finally([units = std::move(units)] {}); // must move the unit to the final lambda i.e. finally
+                return seastar::stop_iteration::no;
+            });
+        });
+    });
+}
+```
+
+上述例子主要展示多个循环执行相同的任务如何将相同的任务并发执行，而没有限制执行次数，即死循环，通常实践中会有最终循环次数限制，即例如要求单次同时执行不超过100个，一共执行456次：
+
+- 按顺序从0-456开始执行，前100个`slow()`能立即开始，后续每有一个`slow()`结束就能开启一个新的`slow()`
+- 最终执行完456个，期间semaphore一直接近0，每有释放的计数就立即开始新任务，最终`limit.wait(100)`等待计数器返回100时所有任务执行结束（中途不可能回到100）
+- 若没有`finally()`来等待结束，则`f()`返回的future会在发起最后100个`slow()`后就立即ready，而不会等这100个`slow()`完成
+
+```C++
+seastar::future<> f() {
+    return seastar::do_with(seastar::semaphore(100), [] (auto& limit) {
+        return seastar::do_for_each(
+                boost::counting_iterator<int>(0),
+                boost::counting_iterator<int>(456),
+                [&limit] (int i) {
+                    return seastar::get_units(limit, 1).then([] (auto units) {
+                        slow().finally([units = std::move(units)] {});
+                    });
+                }).finally([&limit] { return limit.wait(100); });
+    });
+}
+```
+
+采用semaphore同时用于一个限制循环任务的并发数和等待任务的全部完成，当需要采用semaphore限制多个循环任务的并发数时，就不能再用于等待全部循环任务的结束，而需要采用`seastar::gate`：
+
+- 此时semaphore是`thread_local`来限制所有在运行的循环`f()`中的`slow()`并发执行数
+- 每个`slow()`在执行前后需要`gate.enter()/gate.leave()`（是否也可以RAII？），并且最后通过`gate.close()`来等待一次循环内的所有任务结束
+
+```C++
+thread_local seastar::semaphore limit(100);
+seastar::future<> f() {
+    return seastar::do_with(seastar::gate(), [] (auto& gate) {
+        return seastar::do_for_each(
+                boost::counting_iterator<int>(0),
+                boost::counting_iterator<int>(456), 
+                [&gate] (int i) {
+                    return seastar::get_units(limit, 1).then([&gate] (auto units) {
+                        gate.enter();
+                        seastar::futurize_invoke(slow).finally([&gate, units = std::move(units)] {
+                            gate.leave();
+                        });
+                    });
+                }).finally([&gate] {
+                    return gate.close();
+                });
+    });
+}
+```
+
+`TODO`待补充内容（通过查看源码解释？）：
+
+- 类似`get_unites()`的方式**RAII**管理`gate`代替显式的`gate.enter()/gate.leave()`
+- semaphore等待者的**调度公平性问题**，总是顺序执行？
+- **broken semaphore**的情况
+- **互斥锁**的方式使用信号量`semaphore(1)`，当同一个线程多个任务会访问相同数据时，虽然不需要`std::mutex`一类的线程级互斥锁来保护，但需要协程级的互斥锁来保护
+- **类似barrier**的方式使用信号量`semaphore(0)`，从0初始化，当需要执行N个前置任务才能正式执行一个任务时，每个任务对资源`signal(1)`并在正式任务前`wait(N)`
 
 ## 管道 Pipes
+
+seastar提供`pipe<T>`来在两个任务中传输信息，`pipe<T>`有限缓存从而当满时producer侧就无法写入数据，空时consumer侧就无法取出数据，并且任意一侧可以主动关闭，另一侧就会收到`EOF`或是`Broken Pipe`，同时如果其中一侧关闭时阻塞的另一侧会被中断，并会一直阻塞
 
 ## 停止服务 Shutting down a service with a gate
 
 ## 无共享 Introducing shared-nothing programming
 
+[无共享设计](Shared_Nothing.md)
+
 ## 事件循环 More about Seastar's event loop
+
+[事件循环 - Reactor模式](Reactor.md)
 
 ## 网络栈 Introducing Seastar's network stack
 
