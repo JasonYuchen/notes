@@ -413,7 +413,7 @@ seastar::future<> f() {
 采用semaphore同时用于一个限制循环任务的并发数和等待任务的全部完成，当需要采用semaphore限制多个循环任务的并发数时，就不能再用于等待全部循环任务的结束，而需要采用`seastar::gate`：
 
 - 此时semaphore是`thread_local`来限制所有在运行的循环`f()`中的`slow()`并发执行数
-- 每个`slow()`在执行前后需要`gate.enter()/gate.leave()`（是否也可以RAII？），并且最后通过`gate.close()`来等待一次循环内的所有任务结束
+- 每个`slow()`在执行前后需要`gate.enter()/gate.leave()`（也可以采用RAII的方式`seastar::with_gate()`），并且最后通过`gate.close()`来等待一次循环内的所有任务结束
 
 ```C++
 thread_local seastar::semaphore limit(100);
@@ -449,6 +449,64 @@ seastar::future<> f() {
 seastar提供`pipe<T>`来在两个任务中传输信息，`pipe<T>`有限缓存从而当满时producer侧就无法写入数据，空时consumer侧就无法取出数据，并且任意一侧可以主动关闭，另一侧就会收到`EOF`或是`Broken Pipe`，同时如果其中一侧关闭时阻塞的另一侧会被中断，并会一直阻塞
 
 ## 停止服务 Shutting down a service with a gate
+
+假定一个服务随时都会有一些`slow()`任务正在运行，则想要良好停止服务时shutdown gracefully就需要**等待当前正在执行的任务结束，同时必须避免新的任务开始**
+
+seastar提供了`seastar::gate`对象，可以用于服务的管理与优雅关闭，在一个操作开始前需要调用`gate::enter()`，在一个操作结束时需要调用`gate::leave()`，`gate`对象会管理当前正在运行的操作数量
+
+当需要停止服务时可以调用`gate::close()`从而此后调用`gate::enter()`就会抛出异常`gate_closed_exception`阻止新任务开始运行，并且`gate::close()`返回的future会在当前正在运行的任务全都结束并调用`gate::leave()`后就绪，此时所有进展中的任务归零，服务可以优雅关闭
+
+```C++
+seastar::future<> f() {
+    return seastar::do_with(seastar::gate(), [] (auto& g) {
+        return seastar::do_for_each(
+                boost::counting_iterator<int>(1),
+                boost::counting_iterator<int>(6),
+                [&g] (int i) {
+                    seastar::with_gate(g, [i] { return slow(i); });
+                    // wait one second before starting the next iteration
+                    return seastar::sleep(std::chrono::seconds(1));
+                }).then([&g] {
+                    seastar::sleep(std::chrono::seconds(1)).then([&g] {
+                        // This will fail, because it will be after the close()
+                        seastar::with_gate(g, [] { return slow(6); });
+                    });
+                    return g.close();
+                });
+    });
+}
+```
+
+```text
+starting 1
+starting 2
+starting 3 
+starting 4
+starting 5
+WARNING: exceptional future ignored of type 'seastar::gate_closed_exception': gate closed
+done 1
+done 2
+done 3
+done 4
+done 5
+```
+
+通常一个长久运行的服务并不会收到`gate::close()`的通知，因此必须要**主动去检查是否应该退出**，采用`gate::check()`来检查，假如已经关闭则检查就会抛出`gate_closed_exception`
+
+```C++
+seastar::future<> slow(int i, seastar::gate &g) {
+    std::cerr << "starting " << i << "\n";
+    return seastar::do_for_each(
+            boost::counting_iterator<int>(0),
+            boost::counting_iterator<int>(10),
+            [&g] (int) {
+                g.check();
+                return seastar::sleep(std::chrono::seconds(1));
+            }).finally([i] {
+                std::cerr << "done " << i << "\n";
+            });
+}
+```
 
 ## 无共享 Introducing shared-nothing programming
 
