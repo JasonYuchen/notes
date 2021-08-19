@@ -518,6 +518,81 @@ seastar::future<> slow(int i, seastar::gate &g) {
 
 ## 网络栈 Introducing Seastar's network stack
 
+seastar提供了两种网络模块：Posix（基于Linux内核协议栈以及epoll）、native（基于L2 Ethernet使用DPDK重写了L3 TCP/IP层），网络协议栈同样遵循无共享的设计，**每个shard负责一部分连接**
+
+seastar从main函数开始的主线程是一个shard，因此让每个shard都开始运行网络服务只需要采用线程间通信让每个shard都开始运行即可，每个shard从0开始，`seastar::smp::count`就是shard数量：
+
+```C++
+seastar::future<> f() {
+    return seastar::parallel_for_each(boost::irange<unsigned>(0, seastar::smp::count),
+            [] (unsigned c) {
+        return seastar::smp::submit_to(c, service_loop);
+    });
+}
+
+seastar::future<> service_loop() {
+    seastar::listen_options lo;
+    lo.reuse_address = true;
+    return seastar::do_with(seastar::listen(seastar::make_ipv4_address({1234}, lo)), [] (auto& listener) {
+        return seastar::keep_doing([&listener] () {
+            return listener.accept().then(
+                [] (seastar::accept_result res) {
+                    std::cout << "Accepted connection from " << res.remote_address << "\n";
+            });
+        });
+    });
+}
+```
+
+`TODO: echo server using coroutine`
+
+```C++
+seastar::future<> handle_connection(seastar::connected_socket s,
+                                    seastar::socket_address a) {
+    auto out = s.output(); // output_stream
+    auto in = s.input();   // input_stream
+    return do_with(std::move(s), std::move(out), std::move(in),
+            [] (auto& s, auto& out, auto& in) {
+        return seastar::repeat([&out, &in] {
+            return in.read().then([&out] (auto buf) {
+                if (buf) {
+                    return out.write(std::move(buf)).then([&out] {
+                        return out.flush();
+                    }).then([] {
+                        return seastar::stop_iteration::no;
+                    });
+                } else {
+                    return seastar::make_ready_future<seastar::stop_iteration>(
+                            seastar::stop_iteration::yes);
+                }
+            });
+        }).then([&out] {
+            return out.close();
+        });
+    });
+}
+
+seastar::future<> service_loop_3() {
+    seastar::listen_options lo;
+    lo.reuse_address = true;
+    return seastar::do_with(seastar::listen(seastar::make_ipv4_address({1234}), lo),
+            [] (auto& listener) {
+        return seastar::keep_doing([&listener] () {
+            return listener.accept().then(
+                    [] (seastar::accept_result res) {
+                // Note we ignore, not return, the future returned by
+                // handle_connection(), so we do not wait for one
+                // connection to be handled before accepting the next one.
+                (void)handle_connection(std::move(res.connection), std::move(res.remote_address)).handle_exception(
+                        [] (std::exception_ptr ep) {
+                    fmt::print(stderr, "Could not handle connection: {}\n", ep);
+                });
+            });
+        });
+    });
+}
+```
+
 ## 分片服务 Sharded services
 
 ## 干净的停止服务 Shutting down cleanly
