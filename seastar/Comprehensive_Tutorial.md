@@ -595,13 +595,133 @@ seastar::future<> service_loop_3() {
 
 ## 分片服务 Sharded services
 
+为了避免手动调用`seastar::smp::submit_to()`来实现每个shard上都执行相同的任务，seastar提供了分片服务的概念，即`seastar::sharded<T>`，会在每个shard上都创建一个`T`的副本，并提供了不同shard之间交互的方式，`T`唯一必须要提供的方法就是`stop()`
+
+- `seastar::sharded<T>::start()`实际上只是将参数传给`T`的构造函数，在每个shard上构造出`T`的实例，而没有开始执行
+- `seastar::sharded<T>::invoke_on_all()`就是在每个shard上都调用并传入该shard的`T`实例的引用，可以用于实际开启服务
+- `seastar::sharded<T>::stop()`用于停止所有服务，其底层会调用`T::stop()`
+- `seastar::sharded<T>::inboke_on()`可以在指定的shard上执行任务，传入该指定shard上的`T`实例的引用
+
+```C++
+class my_service {
+public:
+    std::string _str;
+    my_service(const std::string& str) : _str(str) { }
+    seastar::future<> run() {
+        std::cerr << "running on " << seastar::engine().cpu_id() <<
+            ", _str = " << _str << "\n";
+        return seastar::make_ready_future<>();
+    }
+    seastar::future<> stop() {
+        return seastar::make_ready_future<>();
+    }
+};
+
+seastar::sharded<my_service> s;
+
+seastar::future<> f() {
+    return s.start(std::string("hello")).then([] {
+        return s.invoke_on_all([] (my_service& local_service) {
+            return local_service.run();
+        });
+    }).then([] {
+        return s.stop();
+    });
+}
+```
+
 ## 干净的停止服务 Shutting down cleanly
+
+`TODO: gate`
 
 ## 命令行选项 Command line options
 
+seastar的命令行选项实际采用了`boost::program_options`，当需要添加自定义的命令行选项时（更详细的使用方式可以参考`boost::program_options`文档）：
+
+```C++
+int main(int argc, char** argv) {
+    seastar::app_template app;
+    namespace bpo = boost::program_options;
+    app.add_options({
+        {"flag", "some optional flag"},
+        {"size,s", bpo::value<int>()->default_value(100), "size"}
+    });
+    app.add_positional_options({
+        {"filename", bpo::value<std::vector<seastar::sstring>>()->default_value({}), "sstable files to verify", -1}
+    });
+    app.run(argc, argv, [&app] {
+        auto& args = app.configuration();
+        if (args.count("flag")) {
+            std::cout << "Flag is on\n";
+        }
+        std::cout << "Size is " << args["size"].as<int>() << "\n";
+        auto& filenames = args["filename"].as<std::vector<seastar::sstring>>();
+        for (auto&& fn : filenames) {
+            std::cout << fn << "\n";
+        }
+        return seastar::make_ready_future<>();
+    });
+    return 0;
+}
+```
+
 ## 查错 Debugging a Seastar program
 
+### 忽略的异常 Debugging ignored exceptions
+
+通常所有异常都应该被显式的处理，如果存在一个`future`在析构时发现存储了一个异常没有被处理，就会输出一条包含调用栈地址的警告日志：
+
+```log
+WARN  2020-03-31 11:08:09,208 [shard 0] seastar - Exceptional future ignored: myexception, backtrace:   /lib64/libasan.so.5+0x6ce7f
+  0x1a64193
+  0x1a6265f
+  0xf326cc
+  0xeaf1a0
+  0xeaffe4
+  0xead7be
+  0xeb5917
+  0xee2477
+  ...
+```
+
+seastar提供了一个工具可以用于翻译地址到函数调用（但要求对应的可执行文件例如下列命令中的`a.out`是**unstripped**，[关于stripped属性见此](https://linux.die.net/man/1/strip)，通常stripped可执行文件用于生产环境，而会保存一个unstripped副本用于翻译异常信息里的调用栈地址）：
+
+```shell
+seastar-addr2line -e a.out
+```
+
+随后将一系列地址信息复制进去并使用`ctrl+D`执行翻译，类似：
+
+```C++
+void seastar::backtrace<seastar::current_backtrace()::{lambda(seastar::frame)#1}>(seastar::current_backtrace()::{lambda(seastar::frame)#1}&&) at include/seastar/util/backtrace.hh:56
+seastar::current_backtrace() at src/util/backtrace.cc:84
+seastar::report_failed_future(std::__exception_ptr::exception_ptr const&) at src/core/future.cc:116
+seastar::future_state_base::~future_state_base() at include/seastar/core/future.hh:335
+seastar::future_state<>::~future_state() at include/seastar/core/future.hh:414
+ (inlined by) seastar::future<>::~future() at include/seastar/core/future.hh:990
+f() at test.cc:12
+...
+```
+
+很明显这种方式只是在**寻找一个被忽略的异常`future`的析构位置**，而这个**异常本身的来源并不能由此获得**，因此需要下面的方式来寻找
+
+### 查找异常抛出点 Finding where an exception was thrown
+
+由于C++不像Java等语言会保留异常时的调用栈，就需要程序员手动记录调用栈信息，采用`seastar::make_exception_future_with_backtrace`或是`seastar::throw_with_backtrace`来确保异常发生时可以找到抛出的位置：
+
+```C++
+#include <util/backtrace.hh>
+seastar::future<> g() {
+    // seastar::throw_with_backtrace<std::runtime_error>("hello")
+    return seastar::make_exception_future_with_backtrace<>(std::runtime_error("hello"));
+}
+```
+
+随后此异常被忽略时输出的警告日志就包含了抛出异常位置的信息，也同样通过`seastar-addr2line`来转换获得
+
 ## Promise objects
+
+`TODO: promise`
 
 ## 内存分配器 Memory allocation in Seastar
 
