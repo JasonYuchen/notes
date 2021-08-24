@@ -544,7 +544,7 @@ seastar::future<> service_loop() {
 }
 ```
 
-`TODO: echo server using coroutine`
+拓展到一个简单的echo服务器：
 
 ```C++
 seastar::future<> handle_connection(seastar::connected_socket s,
@@ -572,7 +572,7 @@ seastar::future<> handle_connection(seastar::connected_socket s,
     });
 }
 
-seastar::future<> service_loop_3() {
+seastar::future<> service_loop() {
     seastar::listen_options lo;
     lo.reuse_address = true;
     return seastar::do_with(seastar::listen(seastar::make_ipv4_address({1234}), lo),
@@ -590,6 +590,43 @@ seastar::future<> service_loop_3() {
             });
         });
     });
+}
+```
+
+采用**coroutine实现的echo服务器**（非官方教程给出，并不一定是最接近的实现）：
+
+```C++
+seastar::future<> handle_connection(seastar::connected_socket s,
+                                    seastar::socket_address a) {
+  auto out = s.output();     // coroutine会管理栈上对象，从而免去do_with()
+  auto in = s.input();
+  while (true) {             // 普通while循环替换do_repeat()
+    auto in_buf = co_await in.read();
+    if (in_buf) {
+      co_await out.write(std::move(in_buf));
+      co_await out.flush();  // 采用co_await从而避免采用.then()
+    } else {
+      break;                 // 跳出循环不必再使用stop_iteration::yes
+    }
+  }
+  co_await out.close();      // 必须在s存活时关闭连接，coroutine栈保证了这一点
+  co_return;
+}
+
+seastar::future<> service_loop() {
+  seastar::listen_options lo;
+  lo.reuse_address = true;
+  auto listener = seastar::listen(seastar::make_ipv4_address({8086}), lo);
+  while (true) {
+    auto res = co_await listener.accept();
+
+    // handle_connection这里不能使用co_await，理由与非coroutine版本中的注释相同
+    // 不需要等待当前connection结束，若有新连接可以直接开始处理
+    (void)handle_connection(std::move(res.connection), std::move(res.remote_address))
+        .handle_exception([] (std::exception_ptr ep) {
+          fmt::print(stderr, "Could not handle connection: {}\n", ep);
+        });
+  }
 }
 ```
 
@@ -728,3 +765,4 @@ seastar::future<> g() {
 ## `Seastar::thread`
 
 ## 组件隔离 Isolation of application components
+
