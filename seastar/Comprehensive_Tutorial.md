@@ -762,7 +762,34 @@ seastar::future<> g() {
 
 ## 内存分配器 Memory allocation in Seastar
 
+### Per-thread memory allocation
+
+seastar的应用根据core分成多个shard，因此内存也同样分为多个shard独占，每个线程只会操作属于自身shard的内存，并且在初始内存划分时会**充分考虑到NUMA**
+
+seastar重新实现了内存分配器`operator new/delete, malloc()/free()`及一系列相关函数，虽然都属于同一个进程，每个shard的操作线程能看到其他shard的数据，但是并不推荐直接通过这种方式进行数据修改，而是**尽可能每个线程只关注自身shard的数据**，在不可避免需要跨shard操作时采用seastar提供的[message passing方式](https://github.com/JasonYuchen/notes/blob/master/seastar/Message_Passing.md)（**不要使用共享内存进行通信，使用通信进行共享内存**）
+
+### Foreign pointers
+
+通常一个对象在某个shard上分配后，也应该由该shard所属线程进行析构回收，**seastar并不禁止跨线程的资源分配回收，但是效率更低**
+
+采用`seastar::foreign_ptr<T>`可以将对象传递给另一个shard使用，**通常在跨线程时，会使用`seastar::foreign_ptr<std::unique_ptr<T>>`来代表独占所有权，从而在接收方获得对象的所有权并使用结束后，析构`seastar::foreign_ptr`并回到分配对象的线程进一步析构对象本身**，往往析构函数还包括访问源shard中的其他资源，因此析构函数在原线程上执行也非常重要
+
+需要注意的是即使接收线程已经持有了对象的所有权，但是**对象的一些方法有可能访问了源shard中的其他数据，因此也只能通过原线程来执行**（如果能确定不会访问其他数据，例如读取对象的某个成员的值，就可以直接执行）：
+
+```C++
+// fp is some foreign_ptr<>
+return smp::submit_to(fp.get_owner_shard(), [p=fp.get()]
+    { return p->some_method(); });
+```
+
+当需要在多个shard上共享数据时，则可以采用`seastar::foreign<seastar::lw_shared_ptr<T>>`，此时需要特别注意**避免多个线程同时修改该对象**，若需要修改则应该使用`submit_to`由原线程来执行修改
+
+`seastar::foreign_ptr`通常只能被移动而不能被复制，假如持有的对象是智能指针`shared_ptr`这类可以被复制的对象，则可以调用`future<foreign_ptr> seastar::foreign_ptr::copy()`进行复制，此类复制是由原线程负责的，异步且低效
+
 ## `Seastar::thread`
 
-## 组件隔离 Isolation of application components
+C++20之后更推荐coroutine的方式写同步风格的代码，一个从`.then()`的异步风格转换为coroutines风格的[例子](https://github.com/scylladb/scylla/commit/865d07275622d07f21f9d825cbe157e873faa00c)
 
+`TODO`
+
+## 组件隔离 Isolation of application components
