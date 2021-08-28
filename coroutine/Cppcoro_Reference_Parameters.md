@@ -134,3 +134,188 @@ auto map_val(T&& v, F f) {
 ```
 
 与方式1类似，但是通过区分不同函数，由调用者来显式的保证是传值还是传引用，确保安全
+
+## 另一个实例：seastar
+
+在尝试将[seastar](https://github.com/JasonYuchen/notes/blob/master/seastar/Introduction.md)官方自带的[memcached](https://github.com/JasonYuchen/notes/blob/master/seastar/Memcached.md)从**continuation-based**改写至**coroutine-based**的过程中，对**协程函数的参数生命周期**有了更深入的理解，[协程的引用参数问题可以参见此](Cppcoro_Reference_Parameters.md)
+
+### 测试环境
+
+- OS: Ubuntu 20.04
+- Seastar debug build with Clion 12
+
+### 测试代码
+
+构造一个只支持移动的类`test`，并在构造函数中添加输出信息帮助确认生命周期
+
+```C++
+class test {
+  public:
+  int _id = -1;
+  explicit test(int id) : _id(id) {
+    cout << "ctor " << _id << endl;
+  }
+  test(test&& r) noexcept {
+    _id = r._id; r._id = -1;
+    cout << "move ctor from " << _id << endl;
+  }
+  test& operator=(test&& r) noexcept {
+    _id = r._id; r._id = -1;
+    cout << "move assign from " << _id << endl;
+    return *this;
+  }
+  ~test() {
+    cout << "dtor " << _id << endl;
+  }
+
+  seastar::future<> handle() {
+    cout << "start" << endl;
+    co_await seastar::sleep(1s);
+    cout << "done" << endl;
+  }
+};
+```
+
+在循环中调用被测试的函数并且**不等待返回结果立即开始下一轮循环**（这也是本次测试的由来，在seastar应用中通常会循环`listener->accept()`并开始处理连接，且不会等待该连接处理完而是直接准备下一次`accept()`创建新的连接，[见此](https://github.com/JasonYuchen/notes/blob/master/seastar/Comprehensive_Tutorial.md#%E7%BD%91%E7%BB%9C%E6%A0%88-introducing-seastars-network-stack)），从而局部变量应立即析构：
+
+```C++
+int main(int argc, char** argv) {
+  seastar::app_template app;
+  app.run(argc, argv, [] () -> seastar::future<> {
+    for (int i = 1; i <= 2; ++i) {
+      // 1
+      test o(i);
+      (void)o.handle();
+      // 2
+      // (void)handle(std::move(o)); // (void)handle(test{i});
+      // 3
+      // (void)handle_lref(o);
+      // 4
+      // (void)handle_rref(std::move(o));
+      // 5
+      // auto p = seastar::make_lw_shared<test>();
+      // (void)handle_sp(p);
+    }
+    co_await seastar::sleep(3s);
+  });
+}
+```
+
+### 测试结果
+
+1. 调用成员函数（**不安全**）
+
+    ```C++
+    seastar::future<> handle() {
+      cout << "start" << endl;
+      co_await seastar::sleep(1s);
+      cout << "done" << endl;
+    }
+    ```
+
+    可以发现，输出`start`后抵达第一个暂停点`co_await seastar::sleep(1s)`，此时协程挂起返回，并且开启下一轮循环，因此析构函数被调用并输出`dtor 1`，同理输出`dtor 2`，挂起结束后才输出函数结束前的`done`，显然在成员函数内输出`done`时**对象已经被析构**
+
+    ```text
+    ctor 1
+    start
+    dtor 1
+    ctor 2
+    start
+    dtor 2
+    done
+    done
+    ```
+
+2. 移动一份对象交给协程（**安全**）
+
+    ```C++
+    seastar::future<> handle(test o) {
+      co_return co_await o.handle();
+    }
+    ```
+
+    可以发现，移动构造函数被调用，协程本地有了一份有效的拷贝（局部变量被移动进协程栈），因此析构的是已经无效的对象所以输出`dtor -1`，很明显**直到协程真正结束（输出`done`）后，有效的对象才被析构**输出`dtor 1`和`dtor 2`
+
+    注意输出两次`move ctor from 1`分别代表一次手动`move`以及一次从[局部变量移动进协程栈](https://github.com/JasonYuchen/notes/blob/master/coroutine/Cppcoro_Understanding_Promise.md#2-copying-parameters-to-the-coroutine-frame)，如果调用方式改为`handle(test{i})`则只会有一次
+
+    ```text
+    ctor 1
+    move ctor from 1
+    move ctor from 1
+    start
+    dtor -1
+    dtor -1
+    ctor 2
+    move ctor from 2
+    move ctor from 2
+    start
+    dtor -1
+    dtor -1
+    done
+    dtor 1
+    done
+    dtor 2
+    ```
+
+3. 协程左值引用外部变量（与第一种调用成员函数本质上相同,**不安全**）
+
+    ```C++
+    seastar::future<> handle_lref(test& o) {
+      co_return co_await o.handle();
+    }
+    ```
+
+    与第一种情况相等，**在协程恢复后引用已经失效**
+
+    ```text
+    ctor 1
+    start
+    dtor 1
+    ctor 2
+    start
+    dtor 2
+    done
+    done
+    ```
+
+4. 协程右值引用外部变量（**不安全**）
+
+    ```C++
+    seastar::future<> handle_rref(test&& o) {
+      co_return co_await o.handle();
+    }
+    ```
+
+    需要特别注意的是右值引用也是引用，所绑定的临时变量并不会被移动进协程栈，从而**也在协程恢复后失效**，类似[前文描述的情况](#问题-the-problem)
+
+    ```text
+    ctor 1
+    start
+    dtor 1
+    ctor 2
+    start
+    dtor 2
+    done
+    done
+    ```
+
+5. 指针（**安全**）
+
+    ```C++
+    seastar::future<> handle_sp(seastar::lw_shared_ptr<test> o) {
+      co_return co_await o->handle();
+    }
+    ```
+
+    显然采用指针的方式更为简洁高效，智能指针被移动进了协程，由于引用计数的关系对象始终有效，直到协程运行结束返回，**协程栈被析构，此时引用归零对象才真正被析构**
+
+    ```text
+    ctor 1
+    start
+    ctor 2
+    start
+    done
+    dtor 1
+    done
+    dtor 2
+    ```
