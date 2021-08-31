@@ -153,6 +153,73 @@ int main(int ac, char** av) {
 }
 ```
 
+改写为**C++20 Coroutine的实现**，一些要点：
+
+- 采用`app.run()`的启动方式，取代过时的`app.run_depreacted()`
+- 显式处理SIGINT/SIGTERM信号用于服务的终止，默认情况下这两个信号会直接调用`engine().stop()`，在`co_await stop_signal.wait();`返回时就会关闭所有服务
+- 采用协程的方式停止服务而不是使用`engine().at_exit()`，相关讨论[见此](https://github.com/scylladb/scylla/issues/293)，即接收信号后按顺序`co_await tcp_server.stop();`的方式逐个停止服务
+- 捕获所有初始化阶段的异常
+- 相比较continuation的方式（大量使用`.then()`），coroutine的方式更加直观贴近同步的写法，不易出错
+
+```C++
+int main(int ac, char **av)
+{
+  namespace bpo = boost::program_options;
+  app_template::config app_cfg;
+  app_cfg.auto_handle_sigint_sigterm = false;
+  app_template app(std::move(app_cfg));
+  app.add_options() // 配置项不变
+
+  // 协程写在lambda函数内时必须写出返回类型，不支持自动推导返回类型
+  return app.run(ac, av, [&]() -> future<>
+  {
+    try {
+      memcache::stop_signal stop_signal;
+      sharded<memcache::cache> cache_peers;
+      memcache::sharded_cache cache(cache_peers);
+      sharded<memcache::system_stats> system_stats;
+      sharded<memcache::udp_server> udp_server;
+      sharded<memcache::tcp_server> tcp_server;
+      memcache::stats_printer stats(cache);
+
+      auto &&config = app.configuration();
+      uint16_t port = config["port"].as<uint16_t>();
+      uint64_t per_cpu_slab_size = config["max-slab-size"].as<uint64_t>() * MB;
+      uint64_t slab_page_size = config["slab-page-size"].as<uint64_t>() * MB;
+      size_t max_datagram_size = config["max-datagram-size"].as<size_t>();
+
+      l.info("{} memcached {}", PLATFORM, VERSION);
+      co_await cache_peers.start(per_cpu_slab_size, slab_page_size);
+      co_await system_stats.start(memcache::clock_type::now());
+      co_await tcp_server.start(std::ref(cache), std::ref(system_stats), port);
+      co_await tcp_server.invoke_on_all(&memcache::tcp_server::start);
+      if (engine().net().has_per_core_namespace()) {
+        co_await udp_server.start(std::ref(cache),
+                                  std::ref(system_stats),
+                                  port);
+      } else {
+        co_await udp_server.start_single(std::ref(cache),
+                                         std::ref(system_stats),
+                                         port);
+      }
+      co_await udp_server.invoke_on_all(&memcache::udp_server::set_max_datagram_size,
+                                        max_datagram_size);
+      co_await udp_server.invoke_on_all(&memcache::udp_server::start);
+      if (config.count("stats")) {
+        (void) stats.start();
+      }
+      co_await stop_signal.wait();
+      co_await udp_server.stop();
+      co_await tcp_server.stop();
+      co_await system_stats.stop();
+      co_await cache_peers.stop();
+    } catch (...) {
+      l.error("init failed: {}", std::current_exception());
+    }
+  });
+}
+```
+
 ## Workflow: set an object
 
 ```C++
