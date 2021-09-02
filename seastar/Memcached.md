@@ -220,8 +220,110 @@ int main(int ac, char **av)
 }
 ```
 
-## Workflow: set an object
+## Workflow: TCP server
+
+采用C++20 Coroutine极大的简化了异步代码的编写复杂性，逻辑更为直观和内聚
 
 ```C++
-// TODO
+class tcp_server {
+ private:
+  // 用于在停止服务时等待最后一个连接处理结束
+  std::optional<future<>> _task;
+  lw_shared_ptr<seastar::server_socket> _listener;
+  sharded_cache &_cache;
+  distributed<system_stats> &_system_stats;
+  uint16_t _port;
+  struct connection {
+    connected_socket _socket;
+    socket_address _addr;
+    input_stream<char> _in;
+    output_stream<char> _out;
+    ascii_protocol _proto;
+    distributed<system_stats> &_system_stats;
+    connection(connected_socket &&socket,
+               socket_address addr,
+               sharded_cache &c,
+               distributed<system_stats> &system_stats)
+      : _socket(std::move(socket)),
+        _addr(addr),
+        _in(_socket.input()),
+        _out(_socket.output()),
+        _proto(c, system_stats),
+        _system_stats(system_stats)
+    {
+      _system_stats.local()._curr_connections++;
+      _system_stats.local()._total_connections++;
+    }
+    static future<> handle(lw_shared_ptr<connection> conn)
+    {
+      // eof()意味着对端关闭连接，此时可以安全退出
+      while (!conn->_in.eof()) {
+        try {
+          co_await conn->_proto.handle(conn->_in, conn->_out);
+          co_await conn->_out.flush();
+        } catch (...) {
+          // 任意异常都会引起连接关闭
+          l.warn("connection {} closed: exception {}",
+                 conn->_addr,
+                 std::current_exception());
+          break;
+        }
+      }
+      co_await conn->_out.close();
+      co_return;
+    }
+    ~connection()
+    {
+      _system_stats.local()._curr_connections--;
+    }
+  };
+ public:
+  tcp_server(sharded_cache &cache,
+             distributed<system_stats> &system_stats,
+             uint16_t port = 11211)
+    : _cache(cache), _system_stats(system_stats), _port(port)
+  {}
+
+  future<> start()
+  {
+    // Run in the background.
+    _task = process();
+    l.info("tcp server started");
+    co_return;
+  }
+
+  future<> stop()
+  {
+    // 此时会触发_listener->accept()抛出异常，并引起process()循环的退出
+    _listener->abort_accept();
+    // 等待process()循环结束，不应该有任何异常因此可以discard
+    co_await _task->discard_result();
+    l.info("tcp server stopped");
+    co_return;
+  }
+
+  future<> process()
+  {
+    try {
+      listen_options lo;
+      // 启用地址重用，从而服务重启时可以监听相同的端口
+      lo.reuse_address = true;
+      _listener =
+        seastar::server_socket(seastar::listen(make_ipv4_address({_port}), lo));
+      while (true) {
+        auto ar = co_await _listener->accept();
+        auto conn = make_lw_shared<connection>(std::move(ar.connection),
+                                               std::move(ar.remote_address),
+                                               _cache,
+                                               _system_stats);
+        // Run in the background until eof has reached on the input connection.
+        // 每个连接单独处理，不等待当前连接处理结束就立即开始准备accept()新连接
+        (void) connection::handle(conn);
+      }
+    } catch (...) {
+      l.error("tcp server exited: exception {}", std::current_exception());
+    }
+    co_return;
+  }
+};
 ```
