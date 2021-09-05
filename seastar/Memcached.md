@@ -327,3 +327,92 @@ class tcp_server {
   }
 };
 ```
+
+## Workflow: protocol
+
+在TCP server中使用，根据当前连接收到的数据状态（`_parser._state`）构造状态机（底层使用`sharded_cache`）来服务一条连接，而UDP server则是直接使用`sharded_cache`
+
+```C++
+future<> ascii_protocol::handle(input_stream<char>& in, output_stream<char>& out) {
+    _parser.init();
+    return in.consume(_parser).then([this, &out] () -> future<> {
+        switch (_parser._state) {
+            case memcache_ascii_parser::state::eof:
+                return make_ready_future<>();
+
+            case memcache_ascii_parser::state::error:
+                return out.write(msg_error);
+
+            case memcache_ascii_parser::state::cmd_set:
+            {
+                _system_stats.local()._cmd_set++;
+                prepare_insertion();
+                // 调用底层的sharded_cache完成真正的set
+                auto f = _cache.set(_insertion);
+                if (_parser._noreply) {
+                    return std::move(f).discard_result();
+                }
+                return std::move(f).then([&out] (...) {
+                    return out.write(msg_stored);
+                });
+            }
+            // SKIP various cases
+        };
+        // 解析状态异常，直接退出，是否断开当前连接比退出更好？
+        std::abort();
+    }).then_wrapped([this, &out] (auto&& f) -> future<> {
+        // FIXME: then_wrapped() being scheduled even though no exception was triggered has a
+        // performance cost of about 2.6%. Not using it means maintainability penalty.
+        try {
+            f.get();
+        } catch (std::bad_alloc& e) {
+            if (_parser._noreply) {
+                return make_ready_future<>();
+            }
+            return out.write(msg_out_of_memory);
+        }
+        return make_ready_future<>();
+    });
+};
+
+// The caller must keep @insertion live until the resulting future resolves.
+// insertion被保存在ascii_protocol对象内的_insertion内，一直有效
+future<bool> sharded_cache::set(item_insertion_data& insertion) {
+    // 通过对对象的key进行分区获得对应的shard位置
+    auto cpu = get_cpu(insertion.key);
+    if (this_shard_id() == cpu) {
+        return make_ready_future<bool>(_peers.local().set(insertion));
+    }
+    // 若是其他shard，则通过消息通信将insertion发送到对应的shard
+    // remote_origin_tag则是tag dispatch，通过这个tag来确定是否可以持有insertion的所有权（并move）
+    return _peers.invoke_on(cpu, &cache::set<remote_origin_tag>, std::ref(insertion));
+}
+
+struct remote_origin_tag {
+  template<typename T>
+  static inline
+  T move_if_local(T &ref)
+  {
+    // 对于remote来说拷贝一份而不move
+    return ref;
+  }
+};
+
+struct local_origin_tag {
+  template<typename T>
+  static inline
+  T move_if_local(T &ref)
+  {
+    // 对于local来说可以安全的直接move走对象
+    return std::move(ref);
+  }
+};
+
+inline
+unsigned sharded_cache::get_cpu(const item_key &key)
+{
+  // 根据key获得shard的方式就是简单的hash partition方法
+  // 其他还可以考虑range partition方法
+  return std::hash<item_key>()(key) % smp::count;
+}
+```
