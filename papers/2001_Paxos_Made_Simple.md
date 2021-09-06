@@ -254,7 +254,7 @@ X在尚未完成两阶段Paxos时，Y就介入采用更大的提案号更新了a
 
 [Phxpaxos](https://github.com/Tencent/phxpaxos)是腾讯微信事业群开源的Multi Paxos实现，其中有一个实现细节与Classic Paxos明显不同，在Classic Paxos原文对Phase I的描述中有：
 
-> (b) If an acceptor receives a prepare request with number n **greater than** that of  any prepare request to which it has already responded, then it responds to the request with a promise not to accept any more proposals numbered less than n and with the highest-numbered proposal (if any) that it has accepted.
+> (b) If an acceptor receives a prepare request with number n **greater than** that of  any prepare request to which it has already responded, then it responds to the request with a promise not to accept any more proposals numbered less than n and with the highest-numbered proposal (if any) that it has accepted.
 
 即acceptor只能响应携带有提案号大于自身已经记录的最大提案号的prepare请求，而在Phxpaxos的实现中却采用了`>=`：
 
