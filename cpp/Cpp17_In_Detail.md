@@ -103,11 +103,154 @@ Only part of the changes are noted here.
 ## 4. Templates
 
 - **类模板参数推导 Template Argument Deduction for Class Templates**
-- 
+  模板函数的模板参数可以根据函数参数自动推导，这种方式拓展到了类模板，模板类的模板参数可以根据构造函数的参数自动推导
+  
+  ```C++
+  using namespace std::string_literals;
+  std::pair myPair(42, "hellow world"s); // std::pair<int, std::string>
+  std::array arr{1, 2, 3};               // std::array<int, 3>
+  ```
+
+  编译器通过**推导规则Deduction Guides**来尝试推导模板类的模板参数，推导规则包含编译器隐式生成规则和用户自定义规则两类：
+
+  ```C++
+  // custom deduction guide for std::array
+  template<class T, class... U>
+  array(T, U...) -> array<T, 1 + sizeof...(U)>;
+
+  // custom deduction guide for overload
+  template<class... Ts>
+  struct overload : Ts... { using Ts::operator()...; };
+
+  template<class... Ts>
+  overload(Ts...) -> overload<Ts...>;
+  ```
+  
+  采用**overload pattern**可以将一系列lambdas转换为一系列classes并可以继承，[应用场合例如静态多态](https://github.com/JasonYuchen/notes/blob/master/cpp/polymorphism.md#%E9%B8%AD%E5%AD%90%E7%B1%BB%E5%9E%8B%E4%B8%8Estdvariant)
+
+- **折叠表达式 Fold Expressions**
+  在可变参数模板variadic templates中采用折叠表达式的方式进行参数展开（一定程度上可以替代递归展开）
+
+  ```C++
+  template<typename ...Args> auto sum2(Args ...args) {
+    return (args + ...);
+  }
+  auto value = sum2(1, 2, 3, 4); // auto value = 1 + (2 + (3 + 4));
+
+  template<typename ...Args> void foldPrint(Args&& ...args) {
+    (std::cout << ... << std::forward<Args>(args)) << '\n';
+  }
+  foldPrint("hello", 10, 20, 30);
+  ```
+
+  |Expression|Name|Expansion|
+  |:-|:-|:-|
+  |`(... op e)`|unary left fold|`((e1 op e2) op ...) op eN`|
+  |`(init op ... op e)`|binary left fold|`(((init op e1) op e2) op ...) op eN`|
+  |`(e op ...)`|unary right fold|`e1 op (... op (eN-1 op eN)`|
+  |`(e op ... op init)`|binary right fold|`e1 op (... op (eN-1 op (eN op init)))`|
+
+  *`op`是以下任意一个运算符：`+ - * / % ^ & | = < > << >> += -= *= /= %= ^= &= |= <<= >>= == != <= >= && || , .* ->*`*
+
+  *对于`&& || ,`这三个运算有空参数默认值为`true false void()`，因此对于前述的`sum2()`就会报错因为`+`没有空参数默认值*
+- **编译期判断 `if constexpr`**
+  在编译期就执行判断，并丢弃掉不符合判断的代码（从而运行时不会运行这些代码），需要特别注意的是，**只会丢弃依赖判断内容的表达式，不依赖的表达式不会被移除**：
+  - 假如传入的符合`std::is_integral_v<T>`，则`else`分支中的`execute(t)`由于依赖了`T t`因此会被移除，而`strange syntax`并不依赖，会被保留并执行编译，此时就可能因为语法问题编译出错
+  - 在符合`std::is_integral_v<T>`的分支内`static_assert(sizeof(int) == 100)`由于不依赖`T t`因此总是会报错，可以改为`static_assert(sizeof(T) == 100)`从而只有此分支被保留时才会报错
+
+  ```C++
+  template <typename T>
+  void calculate(T t) {
+    if constexpr (std::is_integral_v<T>) {
+      // ...
+      static_assert(sizeof(int) == 100); // static_assert(sizeof(T) == 100);
+    } else {
+      execute(t);
+      strange syntax
+    }
+  }
+  ```
+
+  采用`if constexpr`可以**显著简化原先需要SFINAE、tag dispatching才能实现的模板代码**：
+
+  ```C++
+  // SFINAE
+  template <typename T>
+  std::enable_if_t<std::is_integral_v<T>, T> simpleTypeInfo(T t) {
+    std::cout << "foo<integral T> " << t << '\n';
+    return t;
+  }
+  template <typename T>
+  std::enable_if_t<!std::is_integral_v<T>, T> simpleTypeInfo(T t) {
+    std::cout << "not integral \n";
+    return t;
+  }
+
+  // if constexpr
+  template <typename T>
+  T simpleTypeInfo(T t) {
+    if constexpr (std::is_integral_v<T>) {
+      std::cout << "foo<integral T> " << t << '\n';
+    } else {
+      std::cout << "not integral \n";
+    }
+    return t;
+  }
+  ```
 
 ## 5. Standard Attributes
 
-`TODO`
+- `[[fallthrough]]`
+  
+  ```C++
+  switch (c) {
+    case 'A':
+      f();           // warning, fallthrough is perhaps a programmer error
+    case 'B':
+      g();
+    [[fallthrough]]; // suppressed
+    case 'C':
+      h();
+  }
+  ```
+
+- `[[maybe_unused]]`
+
+  ```C++
+  static void impl1() {...} // compilers may warn about this
+  [[maybe_unused]] static void impl2() {...} // suppressed
+
+  void foo() {
+    int x = 42; // compilers may warn about this
+    [[maybe_unsed]] int y = 53; // suppressed
+  }
+  ```
+
+- `[[nodiscard]]`
+
+  ```C++
+  [[nodiscard]] int compute();
+  void test() {
+    compute();  // warning, return value is discarded
+  }
+
+  enum class [[nodiscard]] ErrorCode {  // warning if ErrorCode is discarded
+    OK,
+    Fatal,
+    Unknown,
+  };
+  ```
+
+- `[[deprecated("message")]]` or `[[deprecated]]`
+
+  ```C++
+  namespace [[deprecated("use BetterUtils")]] GoodUtils {
+    void doStuff();  // when used, warning: 'GoodUtils' is deprecated: use BetterUtils
+  }
+  ```
+
+- `[[noreturn]]`
+- `[[carries_dependency]]`
 
 ## 6. `std::optional`
 
