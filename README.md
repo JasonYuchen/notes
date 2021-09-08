@@ -11,6 +11,7 @@ Notes about various courses, projects, books, papers, topics, blogs, etc.
 |**consistency**|blog|dive into various consistency models ([jepsen](https://jepsen.io/))|
 |**coroutine**|blog|[Asymmetric Transfer, Lewis Baker](https://lewissbaker.github.io/) wrote several blogs with examples introducing coroutines in C++20|
 |**cpp**|multiple|miscellaneous topics of C/C++|
+|**db**|multiple|miscellaneous topics of Database|
 |**dcr**|thesis|*Distributed Consensus Revised*, Heidi Howard|
 |**ddia**|book|*Design Data Intensive Applications*, Martin Kleppmann|
 |**dragonboat**|project|a high performance multi-group Raft consensus library in pure Go|
