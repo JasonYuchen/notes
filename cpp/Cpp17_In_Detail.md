@@ -254,40 +254,53 @@ Only part of the changes are noted here.
 
 ## 6. `std::optional`
 
-`TODO`
+- **创建对象**
+  
+  ```C++
+  // empty:
+  std::optional<int> oEmpty;
+  std::optional<float> oFloat = std::nullopt;
+  // direct:
+  std::optional<int> oInt(10);
+  std::optional oIntDeduced(10); // deduction guides
+  // make_optional
+  auto oDouble = std::make_optional(3.0);
+  auto oComplex = std::make_optional<std::complex<double>>(3.0, 4.0);
+  // in_place
+  std::optional<std::complex<double>> o7{std::in_place, 3.0, 4.0};
+  // will call vector with direct init of {1, 2, 3}
+  std::optional<std::vector<int>> oVec(std::in_place, {1, 2, 3});
+  // copy from other optional:
+  auto oIntCopy = oInt;
+  // default constructor
+  std::optional<UserName> opt{std::in_place};
+  ```
 
-## 7. `std::variant`
+  注意，当有以下情况时更推荐使用`std::in_place`（或使用`std::make_optional()`）
+  - **默认构造**，当不使用`std::in_place`时总是构造出空的`std::optional`而不是默认对象
+  - **不具有copy/move构造**的对象可以采用`std::in_place`原地构造
+  - **需要大量构造参数**的对象采用`std::in_place`性能更好
 
-`TODO`
+- **返回对象**
+  使用`std::optional`时需要特别注意返回对象的构造，采用统一初始化的方式会导致copy-elision失效：
 
-## 8. `std::any`
+  ```C++
+  std::optional<std::string> CreateString() {
+    std::string str {"Hello Super Awesome Long String"};
+    return {str}; // this one will cause a copy
+    return str;   // this one moves
+  }
+  ```
 
-`TODO`
+- **访问对象**
+  - `operator*`，若为空对象则UB
+  - `operator->`，若为空对象则UB
+  - `value()`，若为空对象则抛出`std::bad_optional_access`
+  - `value_or(defaultVal)`，若为空对象则返回`defaultVal`
 
-## 9. `std::string_view`
-
-`TODO`
-
-## 10. String Conversions
-
-`TODO`
-
-## 11. Searchers & String Matching
-
-`TODO`
-
-## 12. Filesystem
-
-`TODO`
-
-## 13. Parallel STL Algorithms
-
-`TODO`
-
-## 14. Other Changes In The Library
-
-`TODO`
-
-## 15. Examples
-
-`TODO`
+- **比较**
+  `std::nullopt`比任意有内容的`std::optional`都要小，均有内容的`std::optional`则基于内容比较
+- **开销**
+  由于需要簿记内容是否存在，因此其对象大小会大于原对象，存在额外内存开销，而性能开销并不大，并**不会发生动态内存分配（值语义）**
+- **其他**
+  需要特别注意当内容是指针时，由于`std::optional`的访问与指针非常相似，指针存放在`std::optional<T*>`时极易出错，避免这样的用法
