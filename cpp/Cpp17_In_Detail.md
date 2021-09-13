@@ -304,3 +304,79 @@ Only part of the changes are noted here.
   由于需要簿记内容是否存在，因此其对象大小会大于原对象，存在额外内存开销，而性能开销并不大，并**不会发生动态内存分配（值语义）**
 - **其他**
   需要特别注意当内容是指针时，由于`std::optional`的访问与指针非常相似，指针存放在`std::optional<T*>`时极易出错，避免这样的用法
+
+## 7. `std::variant`
+
+类型安全的`union`
+
+- **创建对象**
+  默认情况下`std::variant`会根据模板参数第一个类型进行默认初始化，假如第一个类型没有默认构造函数，可以传入`std::monostate`
+
+  ```C++
+  // default initialisation: (the first type has to have a default ctor)
+  std::variant<int, float> intFloat;
+  // for first type does not have a default ctor, use monostate
+  std::variant<std::monostate, NotSimple, int> okInit;
+  // pass a value:
+  std::variant<int, float, std::string> intFloatString { 10.5f };
+  // ambiguity resolved by in_place (otherwise the 7.6 can be either long or float)
+  variant<long, float, std::string> longFloatString {
+    std::in_place_index<1>, 7.6 // double!
+  };
+  // ambiguity resolved by in_place
+  std::variant<int, float> intFloat { std::in_place_type<int>, 10.5f };
+  // in_place for complex types
+  std::variant<std::vector<int>, std::string> vecStr {
+    std::in_place_index<0>, { 0, 1, 2, 3 }
+  };
+  ```
+
+  注意，与`std::optional`类似，`std::variant`通过`std::in_place_type<T>`和`std::in_place_index<>`来提供更有效的对象创建
+- **生命周期**
+  采用`union`需要自行管理生命周期，调用构造函数和析构函数等，而采用`std::variant`则会自动管理对象生命周期，当内部存储的值被修改时就会调用原对象的析构函数
+- **访问对象**
+  - 采用`std::get<index>`或`std::get<type>`来访问存储的对象，假如不匹配时就会抛出`std::bad_variant_access`异常
+  - 采用`std::get_if<index>`或`std::get_if<type>`来访问存储的对象（注意传入的是`std::variant`的指针），假如不匹配时会返回`nullptr`
+  - 采用`std::visit`来访问，参考[静态多态](https://github.com/JasonYuchen/notes/blob/master/cpp/polymorphism.md#%E9%B8%AD%E5%AD%90%E7%B1%BB%E5%9E%8B%E4%B8%8Estdvariant)
+  - 当有多个`std::variant`需要访问时，可以只提供部分有效组合的重载，并**由generic lambda来处理其余情况**
+
+    ```C++
+    std::variant<Pizza, Chocolate, Salami, IceCream> firstIngredient { IceCream() };
+    std::variant<Pizza, Chocolate, Salami, IceCream> secondIngredient { Chocolate()};
+    std::visit(overload{
+      [](const Pizza& p, const Salami& s) {
+        std::cout << "here you have, Pizza with Salami!\n";
+      },
+      [](const Salami& s, const Pizza& p) {
+        std::cout << "here you have, Pizza with Salami!\n";
+      },
+      [](const auto& a, const auto& b) {
+        std::cout << "invalid composition...\n";
+      },
+    }, firstIngredient, secondIngredient);
+    ```
+
+- **开销**
+  与`union`类似，`std::variant`也基于可能包含最大的对象的空间，并额外加上簿记信息，同时也**不会发生动态内存分配（值语义）**
+- **实例：状态机**
+  
+  ```C++
+  struct DoorState {
+    struct DoorOpened {};
+    struct DoorClosed {};
+    struct DoorLocked {};
+    using State = std::variant<DoorOpened, DoorClosed, DoorLocked>;
+    State m_state;
+    void open() { m_state = std::visit(OpenEvent{}, m_state); }
+    void close() { m_state = std::visit(CloseEvent{}, m_state); }
+    void lock() { m_state = std::visit(LockEvent{}, m_state); }
+    void unlock() { m_state = std::visit(UnlockEvent{}, m_state); }
+  };
+  struct OpenEvent {
+    State operator()(const DoorOpened&){ return DoorOpened(); }
+    State operator()(const DoorClosed&){ return DoorOpened(); }
+    // cannot open locked doors
+    State operator()(const DoorLocked&){ return DoorLocked(); }
+  };
+  // other events are similar
+  ```
