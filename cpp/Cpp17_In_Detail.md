@@ -380,3 +380,43 @@ Only part of the changes are noted here.
   };
   // other events are similar
   ```
+
+## 8. `std::any`
+
+安全的`void*`，`std::any`可以存储任意对象，并且对基本类型有额外优化（免去动态内存分配）
+
+- **创建对象**
+
+  ```c++
+  // default initialisation:
+  std::any a;
+  // initialisation with an object:
+  std::any a2{10}; // int
+  std::any a3{MyType{10, 11}};
+  // in_place:
+  std::any a4{std::in_place_type<MyType>, 10, 11};
+  std::any a5{std::in_place_type<std::string>, "Hello World"};
+  // make_any
+  std::any a6 = std::make_any<std::string>{"Hello World"};
+  ```
+
+  注意，与`std::optional`类似，`std::any`通过`std::in_place_type<T>`来提供更有效的对象创建
+- **生命周期**
+  `std::any`也会自动管理对象的生命周期，当赋予新对象时就会调用旧对象的析构函数
+- **访问对象**
+  - 只读访问，返回对象的副本，并在类型不匹配时抛出`std::bad_any_cast`
+  - 读写访问，返回对象的引用，并在类型不匹配时抛出`std::bad_any_cast`
+  - 读写访问，返回对象的指针，并在类型不匹配时返回`nullptr`
+
+  ```C++
+  std::any_cast<MyType&>(var).Print();
+  std::any_cast<MyType&>(var).a = 11;  // read/write
+  std::any_cast<MyType&>(var).Print();
+  std::any_cast<int>(var);             // throw std::bad_any_cast
+  int* p = std::any_cast<int>(&var);   // p is nullptr
+  class MyType* pt = std::any_cast<MyType>(&var);
+  pt->a = 12;                          // read/write
+  ```
+
+- **开销**
+  由于`std::any`不是模板类而是类型消除，因此**需要动态内存分配**来保存放入的对象（类似类型安全的`std::unique_ptr<void>`），但是对于`int`等小对象，标准**推荐采用Small Buffer Optimisation进行优化**以避免内存分配，但这也会导致例如保存`char`类型虽然避免了分配但是实际会占用更多空间
