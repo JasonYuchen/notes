@@ -420,3 +420,106 @@ Only part of the changes are noted here.
 
 - **开销**
   由于`std::any`不是模板类而是类型消除，因此**需要动态内存分配**来保存放入的对象（类似类型安全的`std::unique_ptr<void>`），但是对于`int`等小对象，标准**推荐采用Small Buffer Optimisation进行优化**以避免内存分配，但这也会导致例如保存`char`类型虽然避免了分配但是实际会占用更多空间
+
+## 9. `std::string_view`
+
+- **创建对象**
+
+  ```C++
+  // the whole string:
+  const char* cstr = "Hello World";
+  std::string_view sv1 { cstr };
+  std::string_view sv2 { cstr, 5 }; // not null-terminated!
+  // from string:
+  std::string str = "Hello String";
+  std::string_view sv3 = str;
+  // ""sv literal
+  using namespace std::literals;
+  std::string_view sv4 = "Hello\0 Super World"sv;
+  ```
+
+- **特殊操作**
+  - `remove_prefix`：移除`string_view`对象的前缀，但不改变被引用的字符串本身
+  - `remove_suffix`：移除`string_view`对象的后缀，但不改变被引用的字符串本身
+  - `starts_with (since C++ 20)`：判断前缀是否符合某个字符串
+  - `ends_with (since C++ 20)`：判断后缀是否符合某个字符串
+- **注意点**
+  - `string_view`往往引用了原字符串中间的一段，且不保证以`'\0'`结尾，因此所有接受C风格字符串的接口都不应该使用`string_view`
+  - 由于`string_view`只是引用了一段字符串，因此在使用时需要确保原字符串有效
+  - `string_view`除了`copy`等少数操作以外的操作，都被标记为`constexpr`，因此可以在编译期操作
+- **性能对比**
+  函数参数不同类型，接收参数后再用于初始化一个`std::string`时，不同场景的开销如下（SSO即Small String Optimization）：
+
+  |Input parameter|`const string&`|`string_view`|`string` and `move`|
+  |:-|:-|:-|:-|
+  |`const char*`|2 allocs|1 alloc|1 alloc + move|
+  |`const char*` + SSO|2 copies|1 copy|2 copies|
+  |lvalue|1 alloc|1 alloc|1 alloc + move|
+  |lvalue + SSO|1 copy|1 copy|2 copies|
+  |rvalue|1 alloc|1 alloc|2 moves|
+  |rvalue + SSO|1 copy|1 copy|2 copies|
+
+## 10. String Conversions
+
+- **`from_chars`**
+  - 当成功时，`from_chars_result::ptr`指向第一个不符合的字符位置或等于`last`，`from_chars_result::ec`为值初始化值
+  - 当无效转换时，`from_chars_result::ptr`指向`first`，`from_chars_result::ec`为`std::errc::invalid_argument`
+  - 当越界时，`from_chars_result::ptr`指向第一个不符合的字符位置，`from_chars_result::ec`为`std::errc::result_out_of_range`
+
+  ```C++
+  struct from_chars_result {
+    const char* ptr;
+    std::errc ec;
+  };
+
+  enum class chars_format {
+    scientific = /*unspecified*/,
+    fixed  = /*unspecified*/,
+    hex  = /*unspecified*/,
+    general = fixed | scientific
+  };
+
+  // TYPE is integral
+  std::from_chars_result from_chars(const char* first, const char* last, TYPE& value, int base = 10);
+
+  // FLOAT_TYPE is floating
+  std::from_chars_result from_chars(const char* first, const char* last, FLOAT_TYPE& value, std::chars_format fmt = std::chars_format::general);
+  ```
+
+- **`to_chars`**
+  - 当成功时，`to_chars_result::ptr`指向`last + 1`，`to_chars_result::ec`为值初始化，注意末尾不会加上`'\0'`
+  - 当出错时，`to_chars_result::ptr`指向`first`
+  - 当越界时，`to_chars_result::ec`为`std::errc::value_too_large`
+
+  ```C++
+  struct to_chars_result {
+    char* ptr;
+    std::errc ec;
+  };
+
+  // TYPE is integral
+  std::to_chars_result to_chars(char* first, char* last, TYPE value, int base = 10);
+
+  // FLOAT_TYPE is floating
+  std::to_chars_result to_chars(char* first, char* last, FLOAT_TYPE value, std::chars_format fmt, int precision);
+  ```
+
+## 11. Searchers & String Matching
+
+提供了**更高性能的字符串匹配算法**，可以在`std::search`时选择所采用的算法：
+
+- `default_searcher`：简单算法，在C++17前均采用这种算法，时间复杂度`O(nm)`
+- `boyer_moore_searcher`：完整版boyer moore算法，时间复杂度`best O(n/m) worst O(nm)`
+- `boyer_moore_horspool_searcher`：简化版boyer moore算法，时间复杂度相同
+
+```C++
+template<class ForwardIterator, class Searcher>
+ForwardIterator search(ForwardIterator first, ForwardIterator last, const Searcher& searcher);
+
+std::string testString = "Hello Super World";
+std::string needle = "Super";
+const auto it = std::search(
+    begin(testString),
+    end(testString),
+    boyer_moore_searcher(begin(needle), end(needle));
+```
