@@ -523,3 +523,105 @@ const auto it = std::search(
     end(testString),
     boyer_moore_searcher(begin(needle), end(needle));
 ```
+
+## 12. Filesystem
+
+`TODO`
+
+## 13. Parallel STL Algorithms
+
+`TODO`
+
+## 14. Other Changes In The Library
+
+- **`std::byte`**
+
+  ```C++
+  constexpr std::byte b{1};
+  constexpr std::byte c{255};
+  static_assert(std::to_integer<int>(b) == 0x01);
+  ```
+
+- **Map和Set的提升**
+  - **Splicing**
+    将节点从基于树的容器（`std::map/std::set`）高效的移动至另一个容器且避免额外的内存开销
+
+    ```C++
+    std::set<std::string> setNames;
+    setNames.emplace("John");
+    std::set<std::string> outSet;
+    auto handle = setNames.extract("John");
+    outSet.insert(std::move(handle));
+    ```
+  
+  - **Emplace Enhancements for `map/unordered_map`**
+    提供了新的方法来插入元素，`try_emplace()`以及`insert_or_assign()`，原先的`emplace()`会无论是否已经存在对象都将参数`move`走，因此往往需要首先`find()`判断是否存在，而原先的`operator[]`会无论是否存在都默认构造，且调用者无法得知在调用前是否存在
+    - `try_emplace()`：若相应的key已经存在，在不会有任何影响也不会`move`参数，若不存在则等同于`emplace`
+    - `insert_or_assign()`：不像`operator[]`依赖默认构造函数的存在，且会返回是否是inserted
+
+    ```C++
+    std::map<std::string, std::string> m;
+    m["Hello"] = "World";
+    std::string s = "C++";
+    m.emplace(std::make_pair("Hello", std::move(s)));
+    // what happens with the string 's'? s is moved away
+    std::cout << s << '\n';
+    std::cout << m["Hello"] << '\n';
+    s = "C++";
+    m.try_emplace("Hello", std::move(s));
+    // s is unchanged since "Hello" exists
+    std::cout << s << '\n';
+    std::cout << m["Hello"] << '\n';
+
+
+    std::map<std::string, User> mapNicks;
+    //mapNicks["John"] = User("John Doe"); // error: no default ctor for User()
+    auto [iter, inserted] = mapNicks.insert_or_assign("John", User("John Doe"));
+    if (inserted)
+      std::cout << iter->first << " entry was inserted\n";
+    else
+      std::cout << iter->first << " entry was updated\n";
+    ```
+
+- **`emplace`类的操作会返回引用**
+  
+  ```C++
+  // since C++11 and until C++17 for std::vector
+  template< class... Args >
+  void emplace_back( Args&&... args );
+  // since C++17 for std::vector
+  template< class... Args >
+  reference emplace_back( Args&&... args );
+
+  // in C++11/14:
+  stringVector.emplace_back("Hello");
+  // emplace doesn't return anything, so back() needed
+  stringVector.back().append(" World");
+
+  // in C++17:
+  stringVector.emplace_back("Hello").append(" World");
+  ```
+
+- **采样算法**
+
+  ```C++
+  std::vector<int> v { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+  std::vector<int> out;
+  std::sample(v.begin(), // range start
+              v.end(), // range end
+              std::back_inserter(out), // where to put it
+              3, // number of elements to sample
+              std::mt19937{std::random_device{}()});
+  // out可能是{1, 4, 9}
+  ```
+
+- **新数学函数**
+  - `std::gcd`：最大公约数Greatest Common Divisor
+  - `std::lcm`：最小公倍数Least Common Multiple
+  - `std::clamp(v, min, max)`：若`v > max`就返回`max`，若`v < min`就返回`min`，否则返回`v`
+  - 其他诸多新数学函数定义在`<cmath>`头文件
+
+- **非成员`std::size(), std::data(), std::empty()`函数**
+- **更多的`constexpr`**
+- **一次性获得多个锁`std::scoped_lock`**
+- **多态分配器`std::pmr`**
