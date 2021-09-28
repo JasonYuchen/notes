@@ -57,20 +57,34 @@ Aurora中所有日志的写入操作（包括commit日志）都是**完全异步
 
 ### 存储的一致性和提交 Storage Consistency Points and Commits
 
+传统的关系型数据库在提交时需要在本地磁盘上写入commit redo log record，通常也可以通过批量多个commit一起写入磁盘来提高吞吐量，而分布式的关系型数据库则会选择2PC、Paxos commit等方式来进行commit，这是一种非常昂贵的操作且可能导致可用性等各种问题
+
+在Aurora中，随着存储服务节点不断收到新的redo日志，本地可以维护一个**Segment Complete LSN, SCL代表该节点收到的连续日志的最大LSN**（inclusive upper bound on log records continuously linked through the segment chain without gaps），通过SCL，存储节点就可以使用gossip协议与其他同属一个protection group的存储节点通信来获取缺失的记录并推进SCL的值
+
+每次收到redo日志时存储节点需要**以ACK来响应数据库实例，ACK响应中就包含了SCL值**，一旦数据库实例收到了protection group上报的SCLs，就可以将自身维护的**Protection Group Complete LSN, PGCL前进到4/6节点上报的最小SCL**，数据库实例可以认为PGCL代表着此LSN及之前的redo log均已经持久化且可靠，例如下图：
+
+- 一个数据库实例包含两个protection group，每个组包含了一个segments的六个副本A-F
+- 奇数的redo log走向PG1，偶数的redo log走向PG2
+- 绿色代表该PG下对应segment的对应副本所在存储节点已经收到了该LSN对应的redo记录
+- PG1的PGCL就是103，因为105只有3个存储节点收到
+- PG2的PGCL就是104，因为102和104都达到了4个节点而106只有3个节点
+
+![Aurora3](images/Aurora3.png)
+
+由于数据库还需要可恢复性，单独的写已经被持久化不足以满足这一点，这还需要数据库实例维护**Volume Complete LSN, VCL代表着一个数据库卷包含的所有segments已经持久化的连续LSN的最大值**，例如上图中的PG1的`PGCL=103`，而PG2的`PGCL=104`，从而此数据库实例的redo日志在`LSN<=104`可靠，即`VCL=104`
+
+在上述维护各类LSN的过程中，数据库实例能够确定一个一致性的点，且**维护每个特殊的LSN值本身不需要任何分布式共识算法**，每个存储服务节点不需要投票决定有效的写入，而是必须接受所有数据库实例的写入并通过gossip协议来补全缺失值，数据库实例只需要确认**某个事务commit log record相应的`LSN<=VCL`或是系统提交点System Commit Number, `SCN<=VCL`就可以确定该事务成功提交**，此过程中不再需要批量多个commit请求，也不需要2PC等分布式提交协议
+
+实际实现中，每个请求的worker也并不会被等待`SCN`而阻塞，而是**将等待提交成功的请求放入等待队列**，自身继续执行其他任务，而一旦检测到VCL的增大使得`SCN<=VCL`，就会分配任务给worker来处理此前等待提交成功的请求并响应客户端
+
 ### 故障恢复 Crash Recovery in Aurora
 
-## 高效读取 Making Reads Efficient
+在宕机等故障中，Aurora仍需要在多个存储服务节点上达成共识来维护一致的全局状态，**数据库实例需要通过protection groups的SCLs来重建自身的PGCLs和VCL**，并且可能有一些segments上存在着并没有完成且没有响应客户端的partial write
 
-### 避免quorum读取 Avoiding quorum reads
+**数据库实例在启动时（宕机重启或是正常启动）会首先构建read quorum**，通过read quorum的PGCLs来构建VCL，并且在新的VCL被重建之后，所有此VCL后的日志会被全部清除，如下图：
 
-### 读取的扩容 Scaling Reads Using Read Replicas
+![Aurora4](images/Aurora4.png)
 
-### 结构化一致性 Structural Consistency in Aurora Replicas
+**当Aurora无法构建write quorum时，就会启动修复过程，通过read quorum的节点来重建错误的segments**，当修复完成构建write quorum成功时，Aurora就会递增**volume epoch值**并存储到存储元信息的节点，且epoch值也会被写入write quorum的protection groups，**epoch值用于区分宕机并会被每一个读写请求携带，所有存储服务节点都会拒绝来自过期epoch的请求**（类似分布式锁的[令牌token](https://github.com/JasonYuchen/notes/blob/master/ddia/08.The_Trouble_with_Distributed_Systems.md#%E7%9C%9F%E7%9B%B8%E7%94%B1%E5%A4%9A%E6%95%B0%E5%86%B3%E5%AE%9Athe-truth-is-defined-by-the-majority)）
 
-### 快照隔离 Snapshot Isolation and Read View Anchors in Aurora Replicas
-
-## 宕机和成员 Failures and Quorum Membership
-
-### 采用quorum集合来改变成员 Using Quorum Sets to Change Membership
-
-### 采用quorum集合来减少成本 Using Quorum Sets to Reduce Costs
+由于数据块的生成materialization已经由存储服务节点来完成，因此在宕机恢复过程中，**数据库实例不需要replay redo log来重建数据，只需要通过undo log来回滚未完成的事务**，显然事务回滚是可以与接受用户新的请求并行完成的，就像正常运行过程中的事务终止回滚一样
