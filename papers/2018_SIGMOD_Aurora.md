@@ -88,3 +88,53 @@ Aurora中所有日志的写入操作（包括commit日志）都是**完全异步
 **当Aurora无法构建write quorum时，就会启动修复过程，通过read quorum的节点来重建错误的segments**，当修复完成构建write quorum成功时，Aurora就会递增**volume epoch值**并存储到存储元信息的节点，且epoch值也会被写入write quorum的protection groups，**epoch值用于区分宕机并会被每一个读写请求携带，所有存储服务节点都会拒绝来自过期epoch的请求**（类似分布式锁的[令牌token](https://github.com/JasonYuchen/notes/blob/master/ddia/08.The_Trouble_with_Distributed_Systems.md#%E7%9C%9F%E7%9B%B8%E7%94%B1%E5%A4%9A%E6%95%B0%E5%86%B3%E5%AE%9Athe-truth-is-defined-by-the-majority)）
 
 由于数据块的生成materialization已经由存储服务节点来完成，因此在宕机恢复过程中，**数据库实例不需要replay redo log来重建数据，只需要通过undo log来回滚未完成的事务**，显然事务回滚是可以与接受用户新的请求并行完成的，就像正常运行过程中的事务终止回滚一样
+
+## 高效读取 Making Reads Efficient
+
+Aurora中读取操作是少数必须要等待的操作，当一次读取的数据块没有命中缓存时就必须等待read I/O的完成才能继续执行，而在存储和计算分离的环境下，一次quorum read代价非常高，往往需要至少3个存储节点响应，因此应该**尽可能避免quorum reads**
+
+### 避免quorum读取 Avoiding quorum reads
+
+**Aurora通过read views实现多版本并发控制MVCC来提供快照隔离**，一次read view构建了一个逻辑时间点，对某次SQL而言该时间点之前的修改全都可见而之后的修改均不可见
+
+在read view时构建最近的SCN并且在此SCN时刻所有活跃事务的列表，只有相应的LSN>=read view SCN的数据块才可以被读请求访问到，并且在该read view SCN时依然活跃的事务或是此后新开始的事务的任何修改都不应该体现在该被访问的数据块中，即**将这些后续修改对应的undo log应用到最新状态的该数据块上就可以重建read view SCN时刻的状态**，从而实现快照隔离
+
+由于Aurora只会异步将redo log写入到存储节点，并且只有在存储节点ACK了redo log时，数据库实例来可以汰换相应的数据块，**从而确保脏数据块的数据一定能从存储服务节点上重建出来**，因此数据库实例一定能从缓存或是该数据块所属的segment所在的[protection group上找到该数据块](https://github.com/JasonYuchen/notes/blob/master/mit6.824/10.Aurora.md#3-azure%E7%9A%84%E5%B8%B8%E8%A7%84%E8%AF%BB%E5%8F%96)，因此**Aurora不需要执行quorum read而是直接从缓存或相应的segment所在存储服务节点上直接读取**
+
+Aurora通常也会记录protection group中所有节点的响应时间，当需要读取数据块时就会请求响应时间最短的节点，并且也会通过**备份请求backup request**的方式随机访问其他节点来减少出现长尾延迟的可能并更新响应时间
+
+### 读取的扩容 Scaling Reads Using Read Replicas
+
+通常数据库都可以通过**复制（包括复制SQL语句的逻辑复制或是基于redo log和数据块的物理复制）来提升读的吞吐量**，Aurora支持逻辑复制从而可以与non-Aurora系统进行交互，而在Aurora cluster内部则使用物理复制
+
+Aurora内部通过将read replicas挂载到和数据库操作的主缓存write instance相同的存储卷上，并且会[不断收到数据库发送的redo log](https://github.com/JasonYuchen/notes/blob/master/mit6.824/Aurora.md#2-%E5%B0%86redo%E8%BF%87%E7%A8%8B%E4%B8%8B%E6%94%BE%E7%BB%99%E5%AD%98%E5%82%A8%E5%B1%82-offloading-redo-processing-to-storage)，**对于非被缓存的数据块其redo log entry可以直接丢弃，仅更新已被缓存的数据块**，需要非被缓存的数据时直接通过底层存储服务节点来读取
+
+这种物理复制的方式使得用户可以极快的根据负载和需求临时性的增加/删除read replicas，这种方式并不影响数据库本身的运作，同时也不影响可用性、持久性，**相当于与给redo log stream增加了一些subscriber**，仅仅会在redo log的发送路径上额外多发送数个read replicas节点从而引入微量延迟，这种方式也即Aurora第一篇论文中[The Log is the Database](https://github.com/JasonYuchen/notes/blob/master/mit6.824/Aurora.md#%E6%97%A5%E5%BF%97%E5%8D%B3%E6%95%B0%E6%8D%AE%E5%BA%93-the-log-is-the-database)的体现
+
+同时当commit已经持久化并且对客户端ACK之后，**相应的read replica可以随时成为write实例**并在本地执行故障恢复后就可以提供服务
+
+### 结构化一致性 Structural Consistency in Aurora Replicas
+
+Aurora基于三个不变量来管理所有replicas：
+
+- 副本的读视图必须比writer的持久化一致性点要落后，从而确保了writer和reader不需要协调缓存的汰换
+- 数据库结构化的变动例如B+树节点分裂与合并，此类操作必须对replica来说是原子的，从而保证了数据块遍历时的一致性
+- 副本的读视图必须可以在writer实例上**锚定一个等价的点**，从而保证了快照隔离
+
+Aurora MySQL中的事务都由一系列有序微事务组成，ordered mini-transactions, MTRs，MTR是原子的，**每个MTR包含了对一块或多块数据的修改，代表了一串redo log records**，例如B+树节点分裂的流程如下：
+
+1. 数据库实例对相关的每个数据块都获取latch，分配一批连续有序的LSNs并生成相应的log records对应一个原子的MTR
+2. 发起写请求，写请求根据涉及的segments被分区（每个PG一个分区）到多个write buffers上
+3. 这些写入就会由相应PG的存储服务节点来完成
+
+在这个过程中此时引入额外的**一致性点Volume Durable LSN, VDL来代表在VCL之下一个MTR完成对应的最大LSN**，[VDL的具体设计可以见此](https://github.com/JasonYuchen/notes/blob/master/mit6.824/Aurora.md#1-%E8%A7%A3%E5%86%B3%E6%96%B9%E6%A1%88%E8%AE%BE%E8%AE%A1%E5%BC%82%E6%AD%A5%E5%A4%84%E7%90%86-solution-sketch-asynchronous-processing)
+
+为了避免read replicas上存在着半完成的修改（即非原子的更新），所有的writer instance都必须**以MTR为单位发送redo logs**，从而read replicas总是能原子的应用一整个MTR的修改，并且**仅当writer instance的VDL已经可见时才会原子的应用MTR**到相应的数据块和缓存上，从而**对read replicas发起的读请求通过VDL实现了一致性保证**
+
+### 快照隔离 Snapshot Isolation and Read View Anchors in Aurora Replicas
+
+read replica会持续收到redo log，但并不带有能够建立SCL，PGCL，VCL，VDL的状态信息
+
+**read replica通过存储服务节点的ACK信息来推进VDL**而不是writer发送的redo log，另外理论上在read replica节点上活跃事务表可以根据redo records和VDL的状态进行构建，但是出于效率原因writer instance会直接发送commit notification给read replicas并且后者来维护事务的提交历史，读视图就是通过VDL点以及事务提交历史来构建，并且和writer instance一样对活跃事务的修改使用undo log来支持MVCC
+
+由于一致性的要求，read replicas上的VDL点一定是落后于writer的，为了保证过去的数据（处于存储服务节点上）也可以被落后的read replicas读到，**Aurora的数据块是保存版本链的**，在确保没有任何writer和reader还会访问过旧的版本时才会发生垃圾回收，引入**最小读取点Protection Group Minimum Read Point LSN, PGMRPL来代表数据库实例当前活跃的请求最小会读取到的点**，从而存储服务节点可以在所有相关联数据库实例的PGMRPLs中选取最小的点并回收此点之前的数据，并且**存储服务节点保证只会接收在`[PGMRPL, SCL]`范围内的读取请求**
