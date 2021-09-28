@@ -138,3 +138,42 @@ read replica会持续收到redo log，但并不带有能够建立SCL，PGCL，VC
 **read replica通过存储服务节点的ACK信息来推进VDL**而不是writer发送的redo log，另外理论上在read replica节点上活跃事务表可以根据redo records和VDL的状态进行构建，但是出于效率原因writer instance会直接发送commit notification给read replicas并且后者来维护事务的提交历史，读视图就是通过VDL点以及事务提交历史来构建，并且和writer instance一样对活跃事务的修改使用undo log来支持MVCC
 
 由于一致性的要求，read replicas上的VDL点一定是落后于writer的，为了保证过去的数据（处于存储服务节点上）也可以被落后的read replicas读到，**Aurora的数据块是保存版本链的**，在确保没有任何writer和reader还会访问过旧的版本时才会发生垃圾回收，引入**最小读取点Protection Group Minimum Read Point LSN, PGMRPL来代表数据库实例当前活跃的请求最小会读取到的点**，从而存储服务节点可以在所有相关联数据库实例的PGMRPLs中选取最小的点并回收此点之前的数据，并且**存储服务节点保证只会接收在`[PGMRPL, SCL]`范围内的读取请求**
+
+## 宕机和成员 Failures and Quorum Membership
+
+Aurora支持在**成员变更时依然提供I/O服务**，以及被先前**移除的成员可以重新加入**集群等常见分布式系统并不提供的功能
+
+### 采用quorum集合来改变成员 Using Quorum Sets to Change Membership
+
+假定有一个Protection Group，分别为`A, B, C, D, E, F`六个segments，此时数据库实例或是监控系统出现了`F`的ACK丢失，从而开始采用新的segment `G`来替换`F`，`F`的ACK丢失可能是网络丢包、忙碌、临时故障、突发延迟、宕机等等原因，额外等待`F`的ACK只可能增加前端请求的延迟，且将系统暴露在出现多重故障导致不可用的风险中，因此Aurora实现了基于quorum的快速成员变换
+
+每一次完整的变更至少会有两次成员变更过渡并且确保每次过渡都是可逆的，每一次成员变更还会使得对应的Protection Group递增一个membership epoch值，成员变更不会阻塞前端的读或写，所有数据库实例和其他节点通过gossip协议发送的消息都会携带有当前自身节点认为的最新epoch值
+
+> 原文中 at least two transitions per membership change....membership epoch is monotonically incremented with each change 略微有些不准确，应该是**每次transition都会increment**
+
+membership epoch和[volume epoch](#故障恢复-crash-recovery-in-aurora)一样，**当接收节点的epoch值更新时就会拒绝携带过时epoch值的请求，被拒绝请求的实例（数据库实例或是其他存储节点）必须通过一次write quorum来更新membership信息以及epoch值**，前述的每次成员变更递增membership epoch的请求同样必须要携带当前最新的membership epoch（类似原子变量的CAS操作）
+
+如下图所示，完整替换一个丢失节点包含**两次成员变更**：
+
+- 第一次是过渡到`{A, B, C, D, E, F}`和`{A, B, C, D, E, G}`共存的情况，此时write quorum变为两个集合各自的4/6，read quorum变为两个集合各自的3/6，即**需要同时满足新旧两个集群各自的quorum sets**，membership epoch `1 -> 2`
+- 在此期间如果`F`恢复正常，则第二次过渡就可以变为移除`G`回到最初的`{A, B, C, D, E, F}`状态，membership epoch `2 -> 3`
+- 在此期间如果`F`依然异常，而`G`已经通过gossip协议补全了log，则第二次过渡就是彻底移除`F`并进入`{A, B, C, D, E, G}`状态，同时更新membership epoch `2 -> 3`
+
+这种两阶段变更并且**在中间状态需要同时满足新旧集群的quorum**做法，在[Raft Joint Consensus算法](https://github.com/JasonYuchen/notes/blob/master/raft/04.Cluster_Membership_Change.md#%E4%BD%BF%E7%94%A8%E8%81%94%E5%90%88%E5%85%B1%E8%AF%86%E5%AE%9E%E7%8E%B0%E4%BB%BB%E6%84%8F%E6%95%B0%E9%87%8F%E7%9A%84%E6%88%90%E5%91%98%E5%8F%98%E6%9B%B4-arbitrary-configuration-change-using-joint-consensus)中也是如此设计的
+
+![Aurora5](images/Aurora5.png)
+
+假如在一二次变更期间，在`F`故障的基础上又出现了`E`的故障，此时希望采用`H`来替换`E`，则依然有4个节点是保证可用的，依然不会影响整个系统的可用性，此时的write quorum就需要`{A, B, C, D, E/H, F/G}`四种quorum各自的4/6，read quorum就是四种quorum各自的3/6
+
+每一次成员变更仅需要在write quorum上更新一次membership epoch，而落后的节点在请求被拒绝后也仅需实现一次write quorum来更新epoch，代价非常低，同时Aurora还采用**volume geometry epoch来管理quorum本身，例如当已经丢失2个数据节点时可以通过剩下的4个节点（满足4/6的write quorum）来将write quorum更新为3/4从而可以进一步容忍一个节点丢失**
+
+### 采用quorum集合来减少成本 Using Quorum Sets to Reduce Costs
+
+Aurora中Protection Group的六个segments节点也不完全相同，三个**full segments**节点含有redo logs和materialized data blocks，而三个**tail segments**节点仅包含redo logs，通常来说数据库的数据块体积远大于元数据，因此三个full segments节点中materialized data blocks所占用的体积就是主要的空间占用，因此虽然**protection group有6个replicas，实际上的cost amplification ~ 3**
+
+显然六个segments节点都可以根据redo logs来构建出完整的数据块，但是会引入额外的延迟，而三个full segments节点不需要构建就可以直接提供读服务，因此：
+
+- **write quorum实际是4/6 of any segments或者3/3 of full segments**
+- **read quorum实际是3/6 of any segments并且1/3 of full segments**
+
+这种设计在实践中的结果就是write quorum与此前不变，**写入了至少一个full segment**并生成了相应的materialized data blocks，而read**读取了至少一个full segment**可以直接获得服务（我们依然采用[前述的策略](#避免quorum读取-avoiding-quorum-reads)避免quorum read）
