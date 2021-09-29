@@ -137,4 +137,175 @@ void test_runner::run_sync(std::function<future<>()> task) {
 }
 ```
 
-`TODO: 魔改gtest来支持seastar?`
+## 在Seastar应用中使用GoogleTest
+
+gtest常见的方式就是采用宏`TEST()`定义一个test，或是采用`TEST_F()`定义一个text fixture，显然直接在gtest中采用协程的编程方式会报错，这是因为`TEST_F()`展开后我们编写的测试部分实际上是`void GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::TestBody()`的函数体：
+
+```C++
+// gtest/internal/gtest-internal.h
+
+#define GTEST_TEST_(test_suite_name, test_name, parent_class, parent_id)       \
+  static_assert(sizeof(GTEST_STRINGIFY_(test_suite_name)) > 1,                 \
+                "test_suite_name must not be empty");                          \
+  static_assert(sizeof(GTEST_STRINGIFY_(test_name)) > 1,                       \
+                "test_name must not be empty");                                \
+  class GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)                     \
+      : public parent_class {                                                  \
+   public:                                                                     \
+    GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)() = default;            \
+    ~GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)() override = default;  \
+    GTEST_DISALLOW_COPY_AND_ASSIGN_(GTEST_TEST_CLASS_NAME_(test_suite_name,    \
+                                                           test_name));        \
+    GTEST_DISALLOW_MOVE_AND_ASSIGN_(GTEST_TEST_CLASS_NAME_(test_suite_name,    \
+                                                           test_name));        \
+                                                                               \
+   private:                                                                    \
+    void TestBody() override;                                                  \
+    seastar::future<> SeastarBody();                                           \
+    static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;      \
+  };                                                                           \
+                                                                               \
+  ::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_suite_name,           \
+                                                    test_name)::test_info_ =   \
+      ::testing::internal::MakeAndRegisterTestInfo(                            \
+          #test_suite_name, #test_name, nullptr, nullptr,                      \
+          ::testing::internal::CodeLocation(__FILE__, __LINE__), (parent_id),  \
+          ::testing::internal::SuiteApiResolver<                               \
+              parent_class>::GetSetUpCaseOrSuite(__FILE__, __LINE__),          \
+          ::testing::internal::SuiteApiResolver<                               \
+              parent_class>::GetTearDownCaseOrSuite(__FILE__, __LINE__),       \
+          new ::testing::internal::TestFactoryImpl<GTEST_TEST_CLASS_NAME_(     \
+              test_suite_name, test_name)>);                                   \
+  void GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::TestBody()
+```
+
+由于**Seastar所有的任务都是由其底层的reactor引擎来完成的**，因此单个测试也应该如此，从而我们希望每个gtest的test case实际上就是将定义的任务提交给Seastar并同步等待结果，Seastar为了方便测试提供了这种用法，从而允许外界线程能够等待Seastar执行完成某些任务：
+
+```C++
+// outside of Seastar, a.k.a. alien thread
+std::future<> fut = seastar::alien::submit_to(
+    *seastar::alien::internal::default_instance,  // or use app_template to fetch an alien::instance
+    0, // shard id
+    some_function); // some function you want Seastar to process
+fut.wait();
+```
+
+在不修改gtest源码的基础上，我们可以参照`GTEST_TEST_()`宏来定义一个类似的宏，但是在执行测试时实际上是将任务提交给Seastar并等待，修改如下：
+
+- 关键点在于新增加的`seastar::future<> SeastarBody()`，在这个函数内我们就可以使用协程
+- 在gtest的测试线程内，原先`TestBody()`是完成一个测试任务，现在只是将我们定义的`SeastarBody()`提交给Seastar运行并等待结果，真正的测试逻辑都在后者中
+- 通过自定义宏来实现gtest测试Seastar中的程序
+
+```C++
+#define MY_TEST_(test_suite_name, test_name, parent_class, parent_id)          \
+  static_assert(sizeof(GTEST_STRINGIFY_(test_suite_name)) > 1,                 \
+                "test_suite_name must not be empty");                          \
+  static_assert(sizeof(GTEST_STRINGIFY_(test_name)) > 1,                       \
+                "test_name must not be empty");                                \
+  class GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)                     \
+      : public parent_class {                                                  \
+   public:                                                                     \
+    GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)() = default;            \
+    ~GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)() override = default;  \
+    GTEST_DISALLOW_COPY_AND_ASSIGN_(GTEST_TEST_CLASS_NAME_(test_suite_name,    \
+                                                           test_name));        \
+    GTEST_DISALLOW_MOVE_AND_ASSIGN_(GTEST_TEST_CLASS_NAME_(test_suite_name,    \
+                                                           test_name));        \
+                                                                               \
+   private:                                                                    \
+    void TestBody() override;                                                  \
+    seastar::future<> SeastarBody();                                           \
+    static ::testing::TestInfo* const test_info_ GTEST_ATTRIBUTE_UNUSED_;      \
+  };                                                                           \
+                                                                               \
+  ::testing::TestInfo* const GTEST_TEST_CLASS_NAME_(test_suite_name,           \
+                                                    test_name)::test_info_ =   \
+      ::testing::internal::MakeAndRegisterTestInfo(                            \
+          #test_suite_name, #test_name, nullptr, nullptr,                      \
+          ::testing::internal::CodeLocation(__FILE__, __LINE__), (parent_id),  \
+          ::testing::internal::SuiteApiResolver<                               \
+              parent_class>::GetSetUpCaseOrSuite(__FILE__, __LINE__),          \
+          ::testing::internal::SuiteApiResolver<                               \
+              parent_class>::GetTearDownCaseOrSuite(__FILE__, __LINE__),       \
+          new ::testing::internal::TestFactoryImpl<GTEST_TEST_CLASS_NAME_(     \
+              test_suite_name, test_name)>);                                   \
+  void GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::TestBody() {        \
+    auto fut = seastar::alien::submit_to(                                      \
+        *seastar::alien::internal::default_instance,                           \
+        0,                                                                     \
+        [this] { return this->SeastarBody(); });                               \
+    fut.wait();                                                                \
+  }                                                                            \
+  seastar::future<>                                                            \
+  GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::SeastarBody()
+
+#define MY_TEST_F(test_fixture, test_name)                                     \
+  MY_TEST_(test_fixture, test_name, test_fixture,                              \
+               ::testing::internal::GetTypeId<test_fixture>())
+```
+
+由于Seastar还需要显式构建一个reactor引擎才能执行提交的测试任务，因此我们将构建引擎的部分放在基类中并要求所有测试都继承自此基类：
+
+- `SetUpTestSuite()`中我们启动Seastar，并接管信号处理
+- `TearDownTestSuite()`中我们向Seastar发送信号来停止执行，并等待Seastar完全退出
+
+```C++
+class my_test_base : public ::testing::Test {
+ public:
+  inline static const int argc = 3;
+  inline static const char *argv[] = {"my_test_base", "-c2", "-m1G"};
+
+  static void SetUpTestSuite() {
+    app_template::config app_cfg;
+    app_cfg.auto_handle_sigint_sigterm = false;
+    _app = std::make_unique<app_template>(std::move(app_cfg));
+    std::promise<void> pr;
+    auto fut = pr.get_future();
+    _engine_thread = std::thread([pr = std::move(pr)]() mutable {
+      return _app->run(
+        argc, const_cast<char **>(argv),
+        // We cannot use `pr = std::move(pr)` here as it will forbid compilation
+        // see https://taylorconor.com/blog/noncopyable-lambdas/
+        [&pr]() mutable -> seastar::future<> {
+          util::stop_signal stop_signal;
+          pr.set_value();
+          co_return co_await stop_signal.wait();
+        });
+    });
+    fut.wait();
+  }
+
+  static void TearDownTestSuite() {
+    l.info("shutting down reactor engine with SIGTERM...");
+    auto ret = ::pthread_kill(_engine_thread.native_handle(), SIGTERM);
+    if (ret) {
+      l.error("send SIGTERM failed: {}", ret);
+      std::abort();
+    }
+    _engine_thread.join();
+  }
+
+ protected:
+  inline static std::thread _engine_thread;
+  inline static std::unique_ptr<seastar::app_template> _app;
+  inline static seastar::logger l = seastar::logger("my_test");
+};
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}
+```
+
+通过这种方式，我们就可以采用与gtest测试其他框架完全相同的方式来测试Seastar的函数，例如：
+
+```C++
+class component : public my_test_base {};
+
+MY_TEST_F(component, basic) {
+  EXPECT_EQ(1, 1);
+  co_await some_function;
+}
+```
+
+需要注意的是由于`ASSERT_*`系列函数在失败时就会通过`return`返回，这与协程中的`co_return`违背，可以自定义一系列`ASSERT_*`或是尽可能避免采用`ASSERT_*`
