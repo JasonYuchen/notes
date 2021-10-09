@@ -64,7 +64,10 @@ LSM树通过设计了一个**合并过程merge process**来解决上述问题，
 
      **水平分组**内每个SSTables之间都不存在重叠，因此一个组成部分进行逻辑分区后就可以直接作为一个组，每一层的多个组成部分作为多个组，只有一个作为**活跃组**并接收上一层合并产生的新SSTables，当合并时需要选择所有组的key重叠部分进行合并，产生的新SSTables就加入下一层的活跃组
 
-3. Concurrency Control and Recovery
+3. **Concurrency Control and Recovery**
+   LSM树的并发支持通常采用**锁机制locking scheme**或是**多版本机制multi-version scheme**来实现，由于LSM树本身会保存key的多个版本并且其合并操作会丢弃过时的数据，因此很自然的可以支持多版本并发控制，但是LSM树特有的**合并操作会对元数据做出修改**，因此必须被同步，通常可以对**每个组成部分维护一个引用计数**，在访问LSM树前，首先获得**当前所有活跃组成部分的快照**，并增加其引用计数从而保证使用中的组成部分不会因为合并而被垃圾回收
+
+   由于所有写入首先都追加到内存中，使用WAL就可以保证写入数据的持久可靠，**通常的LSM树会采用[no-steal](https://github.com/JasonYuchen/notes/blob/master/cmu15.445/20.Logging.md#%E7%BC%93%E5%AD%98%E6%B1%A0%E7%AD%96%E7%95%A5-buffer-pool-policies)的缓存管理策略**，内存中的组成部分只有在所有活跃的写入事务结束时才会被刷写到磁盘上，在**恢复时因为no-steal的策略从而只需要redo所有成功的事务即可，不需要undo未完成的事务**，因为这些事务并没有刷写到磁盘上；另外需要确保活跃组成部分的列表也能够被恢复，在LevelDB和RocksDB中这通过**额外维护一个元数据日志metadata log来记录所有结构上的修改**，例如SSTables的增减
 4. Cost Analysis
 
 ### 2.3 Cost Analysis
