@@ -120,3 +120,14 @@ LSM树通过设计了一个**合并过程merge process**来解决上述问题，
 ## 3 LSM-tree Improvements
 
 ### 3.1 A Taxonomy of LSM-tree Improvements
+
+LSM树有诸多缺点，也是诸多研究希望改善的方面：
+
+- **写放大 Write Amplification**：空间放大导致了LSM树会过度使用现代SSD存储设备，同时也限制了写入性能
+- **合并操作 Merge Operations**：合并会导致缓存失效以及写暂停write stall
+- **硬件 Hardware**：原始LSM树是针对HDD设计的，使用顺序写入代替随机写入，因为HDD顺序I/O性能远高于随机I/O性能，而现代更为广泛使用的SSD/NVM则拥有不同的I/O表现，通过针对不同的底层存储设备的特性可以修改LSM树的实现来充分挖掘硬件的性能
+- **特殊负载 Special Workloads**：在特殊的工作负载下，LSM树的表现未必是最优的，通过利用特殊负载的性质来修改LSM树可以获得独特的更高性能
+- **自动调优 Auto-Tuning**：由RUM猜想可知，不可能存在同时read-optimal、write-optimal、space-optimal的做法，因此LSM树应该根据需求调整参数以适应相应的访问方式，同时由于可调节的参数非常多，自适应调优是一种更好的方式
+- **二级索引 Secondary Indexing**：LSM树只提供了针对key（索引）的操作，通常业务往往也需要能够高效处理non-key的属性，即需要二级索引
+
+![5](images/LSM_survey5.png)
