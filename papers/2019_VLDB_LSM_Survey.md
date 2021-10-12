@@ -22,7 +22,7 @@ LSM树通过设计了一个**合并过程merge process**来解决上述问题，
 - 原始LSM树包含了一系列组成部分`C0, C1, ... Ck`，每一个部分都是B+树，`C0`存储中内存中并服务写请求，其余所有`C1, ... Ck`均存放在磁盘上
 - 当任意`Ci`满时就会触发滚动合并过程，将`Ci`的一部分叶节点移动合并给`Ci+1`，也被称为**leveling merge policy**（由于实现的复杂性，这种合并设计并未被广泛使用）
 - 在稳定的工作负载下，当level的数量固定时，**写性能在所有相邻的组成部分其大小比例相等时`Ti=|Ci+1|/|Ci|`达到最佳**（这影响了所有后续LSM树的设计与实现）
-- 与原始LSM树同时期有另一种合并策略**stepped-merge policy**，其设计为一个LSM树由多个层构成，每一层`L`都由`T`个组成部分，当该层`L`充满时，响应的所有`T`个组成部分一起被合并为单个组成部分并作为`L+1`层的一个组成部分，也被称为**tiering merge policy**（被广泛使用在现在的LSM树实现中）
+- 与原始LSM树同时期有另一种合并策略**stepped-merge policy**，其设计为一个LSM树由多个层构成，每一层`L`都由`T`个组成部分，当该层`L`充满时，相应的所有`T`个组成部分一起被合并为单个组成部分并作为`L+1`层的一个组成部分，也被称为**tiering merge policy**（被广泛使用在现在的LSM树实现中）
 
 ![3](images/LSM_survey3.png)
 
@@ -37,7 +37,7 @@ LSM树通过设计了一个**合并过程merge process**来解决上述问题，
 
    随着正常运行，磁盘上的组成部分会越来越多，此时需要通过前文描述的合并过程进行合并组成部分、仅保留key的较新值、剔除被标记删除的值，如上图所示，最优的情况就是每一层之间的尺寸比例为`T`，因此在**leveling merge policy下每一层只有单个组成部分**，并且这个组成部分的尺寸是上一层的`T`倍大小，当尺寸达到上一层的`T`倍时该层才会被放入下一层；而在**tiering merge policy下每一层都有至多`T`个组成部分**，当任意层达到`T`时就会全部被合并为一个组成部分并放在下一层中
 
-   对于leveling merge policy而言，由于每一层只有一个组成部分，因此**对读请求相对友好，每一层只需查询一个组成部分**；对于tiering merge policy而言，由于每一层可以有更多的组成部分，因此**对写请求更加友好，多个组成部分减少了合并的频率**
+   对于leveling merge policy而言，由于每一层只有一个组成部分，因此**对读请求相对友好，每一层只需查询一个组成部分**，例如LevelDB和RocksDB；对于tiering merge policy而言，由于每一层可以有更多的组成部分，因此**对写请求更加友好，多个组成部分减少了合并的频率**，例如Cassandra
 
 2. **Well-Known Optimizations**
    在现在大多数LSM树实现中都采用了以下两大优化措施：
@@ -68,6 +68,55 @@ LSM树通过设计了一个**合并过程merge process**来解决上述问题，
    LSM树的并发支持通常采用**锁机制locking scheme**或是**多版本机制multi-version scheme**来实现，由于LSM树本身会保存key的多个版本并且其合并操作会丢弃过时的数据，因此很自然的可以支持多版本并发控制，但是LSM树特有的**合并操作会对元数据做出修改**，因此必须被同步，通常可以对**每个组成部分维护一个引用计数**，在访问LSM树前，首先获得**当前所有活跃组成部分的快照**，并增加其引用计数从而保证使用中的组成部分不会因为合并而被垃圾回收
 
    由于所有写入首先都追加到内存中，使用WAL就可以保证写入数据的持久可靠，**通常的LSM树会采用[no-steal](https://github.com/JasonYuchen/notes/blob/master/cmu15.445/20.Logging.md#%E7%BC%93%E5%AD%98%E6%B1%A0%E7%AD%96%E7%95%A5-buffer-pool-policies)的缓存管理策略**，内存中的组成部分只有在所有活跃的写入事务结束时才会被刷写到磁盘上，在**恢复时因为no-steal的策略从而只需要redo所有成功的事务即可，不需要undo未完成的事务**，因为这些事务并没有刷写到磁盘上；另外需要确保活跃组成部分的列表也能够被恢复，在LevelDB和RocksDB中这通过**额外维护一个元数据日志metadata log来记录所有结构上的修改**，例如SSTables的增减
-4. Cost Analysis
 
 ### 2.3 Cost Analysis
+
+采用一次操作会引入的磁盘I/O数量作为代价分析非分区形式LSM树的基本操作如写入、点查询、范围查询以及空间放大，给定如下参数：
+
+- LSM树拥有层数 $L$
+- 层间size比例为 $T$，并且插入操作和删除操作的数据量相同即层数 $L$ 稳定
+- 数据页能存放的entries数量为 $B$
+- 内存中组成部分的数据页数量为 $P$，从而内存中的组成部分至多存放记录数量为 $B \times P$
+- 任意 $i$ 层的组成部分最多存放记录数量 $T^{i+1} \cdot B \cdot P$
+- 假定总共有 $N$ 条记录则最大的层持有记录约 $N \cdot \frac{T}{T+1})$，并且总共的层数约为 $L = \lceil \log_T(\frac{N}{B \cdot P} \cdot \frac{T}{T+1}) \rceil$
+
+不同操作的（最坏情况）代价分析如下：
+
+- **写入代价**
+  也称为**写入放大write amplification**，指平均每次插入一条记录最终需要的I/O次数（这条记录被**最终合并到最大的level时的I/O次数**），对leveling策略来说，每一层需要合并 $T-1$ 次直到该层达到最大体积才能被移动至下一层，从而其最终代价为 $O(T \cdot \frac{L}{B})$ （注意$B$是每一个数据页能存放的记录数量，而磁盘一次I/O操作一个数据页，从而平均每次I/O操作$B$条记录）；对tiering策略来说，每一层可以有多个组成部分并且仅需一次合并就被移动至下一层，从而其最终代价为 $O(\frac{L}{B})$
+- **点读取代价**
+  在没有bloom filter的情况下，一次点查询就需要遍历所有组成部分，因此其代价对leveling策略为 $O(L)$，而对tiering策略为 $O(T \cdot L)$
+
+  在有bloom filter的情况下，读取的性能被大大改善，因为当key不存在时只有bloom filter假阳性才会触发磁盘I/O，假定bloom filter有M位向量，且所有组成部分的假阳性率相等均为 $O(e^{- \frac{M}{N}})$ ，则对于不存在key的查询代价对leveling策略为 $O(L \cdot e^{- \frac{M}{N}})$，对tiering策略为 $O(T \cdot L \cdot e^{- \frac{M}{N}})$，另外对于存在的key的查询至少需要一次I/O读取数据，由于假阳性率远小于1，因此综合来看对key存在的查询两种策略下查询代价均为 $O(1)$
+- **范围读取代价**
+  范围查询的I/O代价取决于查询本身的**选择性selectivity**，假定一次范围查询最终会获得 $s$ 条记录，则称 $\frac{s}{B} > 2$ 的查询为**长查询long query**，反之为**短查询short query**，显然长查询会涉及更多的记录，往往需要查询到最大的层，则其查询代价就由最大的层确定，而短查询通常只需要涉及到单个磁盘数据页，则对每个组成部分都发起一次磁盘I/O，从而长查询在leveling策略下的代价为 $O(\frac{s}{B})$ 而在tiering策略下的代价为 $O(T \cdot \frac{s}{B})$；短查询在leveling策略下的代价为 $O(L)$ 而在tiering策略下的代价为 $O(T \cdot L)$
+- **空间放大**
+  空间放大主要是由于多次合并中同一个key可能保存有不同时期的数据，从而占用了额外的空间，假定空间放大定义为总记录数除以unique记录数
+  
+  对leveling策略来说，最坏情况就是前 $L-1$ 层（包含接近总体数据量的 $\frac{1}{T}$）均是对第 $L$ 层的数据更新，即第 $L$ 层完全是过时数据，此时空间放大率为 $O(\frac{T+1}{T})$；对tiering策略来说，最坏情况是最大的第 $L$ 层所有 $T$ 个组成部分均包含完全相同的keys，此时空间放大率就是 $O(T)$
+
+|Operation|Leveling|Tiering|
+|:-:|:-:|:-:|
+|write|$O(T \cdot \frac{L}{B})$|$O(\frac{L}{B})$|
+|point query|$O(L \cdot e^{- \frac{M}{N}})$ or $O(1)$ ($O(L)$ without bloom)|$O(T \cdot L \cdot e^{- \frac{M}{N}})$ or $O(1)$ ($O(T \cdot L)$ without bloom)|
+|range query/long|$O(\frac{s}{B})$|$O(T \cdot \frac{s}{B})$|
+|range query/short|$O(L)$|$O(T \cdot L)$|
+|space|$O(\frac{T+1}{T})$|$O(T)$|
+
+**体积比 $T$ 会对LSM树的性能产生显著影响**，并且对leveling和tiering的策略影响不同：
+
+- leveling策略下每层只有一个组成部分
+  - 查询性能更高
+  - 空间利用率更高
+  - 会导致频繁的合并操作，写入代价需要乘上 $T$
+- tiering策略下每一层可以有 $T$ 个组成部分
+  - 显著减少了合并操作的频率
+  - 提升了写入的性能（**合并操作会导致写入暂停write stall**）
+  - 牺牲了读取的性能，读取代价需要乘上 $T$
+  - 空间利用率低，写入放大严重，空间代价额外乘上 $T$
+
+可见有诸多方式来设计并调整LSM树的性能，这也服从**RUM猜想**，即数据结构的访问方式需要**在Read cost，Update cost，Memory/storage cost中权衡**
+
+## 3 LSM-tree Improvements
+
+### 3.1 A Taxonomy of LSM-tree Improvements
