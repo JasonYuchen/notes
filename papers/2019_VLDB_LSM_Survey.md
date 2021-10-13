@@ -140,7 +140,7 @@ LSM树有诸多缺点，也是诸多研究希望改善的方面：
 
 - **WriteBuffer (WB) Tree**
   - **partitioned tiering with vertical grouping**
-  - **hash-partitioning对工作负载进行负载均衡**：从而每个SSTable组持有相近的数据量
+  - **hash-partitioning对工作负载进行负载均衡**：从而每个SSTable组持有相近的数据量，但同时由于hash失去了对范围查询的有效支持
   - **SSTable组被组织成B+树**：利用B+树实现自平衡self-balancing**来减少总共的LSM树层数，每个SSTable组都作为B+树中的一个节点，当非叶节点的组满时（达到 $T$ 个SSTables）该组发生合并并加入到子节点对应的SSTable组中；当叶节点的组满时，该组发生合并但合并成2个组，即一半数据（ $T/2$ 个SSTables）占一个新组，作为两个新的叶节点
 - **Light-weight compaction tree, LWC-tree**
   - **partitioned tiering with vertical grouping**
@@ -154,3 +154,18 @@ LSM树有诸多缺点，也是诸多研究希望改善的方面：
   - **virtual SSTable threshold**：由于virtual SSTable指向了多个原SSTables导致了查询性能的下降，因此引入threshold要求当合并所需的真实SSTables超过该值时必须触发物理合并，相当于限制virtual SSTable指涉的真实SSTables数量，当超过时就会触发真实的物理合并
   - **read triggered merge**：当查询过程中遇到了超过一定数量的虚拟SSTabels指涉真实SSTables，也可以触发物理合并
 - **SifrDB**
+  - **partitioned tiering with horizontal grouping**
+  - **early-cleaning during merges**：合并发生时SifrDB增量激活新创建的SSTables并且停用旧的SSTables
+  - **对SSTables并行访问提升查询性能**
+
+### 3.2.2 Merge Skipping
+
+skip-tree中提出了一种合并策略来提升写入性能：通常一个记录从level 0逐级合并到level L中，如果中途可以**跳过某些level的合并**就可以减少写入次数/写入放大，从而实现更高的性能
+
+如下图，当需要合并level L的SSTables并一直合并到level L+K时，**跳过中间的逐层合并，直接加入到level L+K的缓冲区中**，并在后续合并时参与到合并过程
+
+![6](images/LSM_survey6.png)
+
+为了确保正确性，**能够被直接从level L下推到level L+K的keys不能出现在level L+1到level L+K-1中，这可以通过中间层的bloom filter快速判断**，并且写入level L+K缓冲区时会通过WAL来确保可靠
+
+跳过部分合并过程来减小写放大虽然有效，但引入了复杂的缓冲区设计以及缓冲区的WAL，综合来看skip-tree未必能够显著超过调优后的LSM树
