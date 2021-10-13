@@ -160,7 +160,7 @@ LSM树有诸多缺点，也是诸多研究希望改善的方面：
 
 ### 3.2.2 Merge Skipping
 
-skip-tree中提出了一种合并策略来提升写入性能：通常一个记录从level 0逐级合并到level L中，如果中途可以**跳过某些level的合并**就可以减少写入次数/写入放大，从而实现更高的性能
+**skip-tree**中提出了一种合并策略来提升写入性能：通常一个记录从level 0逐级合并到level L中，如果中途可以**跳过某些level的合并**就可以减少写入次数/写入放大，从而实现更高的性能
 
 如下图，当需要合并level L的SSTables并一直合并到level L+K时，**跳过中间的逐层合并，直接加入到level L+K的缓冲区中**，并在后续合并时参与到合并过程
 
@@ -169,3 +169,21 @@ skip-tree中提出了一种合并策略来提升写入性能：通常一个记�
 为了确保正确性，**能够被直接从level L下推到level L+K的keys不能出现在level L+1到level L+K-1中，这可以通过中间层的bloom filter快速判断**，并且写入level L+K缓冲区时会通过WAL来确保可靠
 
 跳过部分合并过程来减小写放大虽然有效，但引入了复杂的缓冲区设计以及缓冲区的WAL，综合来看skip-tree未必能够显著超过调优后的LSM树
+
+### 3.2.3 Exploiting Data Skew
+
+**TRIAD**提出了**冷热数据分离**的方式来减少写入放大：在有数据倾斜、部分key经常被更新的情况下，将冷热数据分离，热数据放置在内存组成部分中，只刷写冷数据到磁盘组成部分上，从而相当于内存缓存热数据
+
+同时热数据虽然不会被刷写到磁盘上，但是TRIAD依然会周期性拷贝热数据的事务日志到新的日志中，从而允许旧日志可以被回收
+
+另一方面TRIAD会延迟内存中level 0的合并直到有多个level 0 SSTables，从而一次性能够合并多个SSTables写入磁盘，**延迟合并提升合并数据量减少合并频率和写入放大**
+
+TRIAD还会直接利用被废弃的旧事务日志文件作为一个磁盘组成部分，从而减少构建新的磁盘文件，通过对旧事务日志创建一个索引来加快访问
+
+## 3.3 Optimizing Merge Operations
+
+### 3.3.1 Improving Merge Performance
+
+### 3.3.2 Reducing Buffer Cache Misses
+
+### 3.3.3 Minimizing Write Stalls
