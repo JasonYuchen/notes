@@ -60,9 +60,9 @@ LSM树通过设计了一个**合并过程merge process**来解决上述问题，
 
      tiering merge policy同样可以使用分区，但是问题在于**tiering下一层可以有多个组成部分并且其key范围存在重叠**，从而当分区后可能导致多个存在重叠范围的SSTables，而leveling merge polcy中每一层只有一个组成部分可以简单分区成互不重叠的SSTables，此时如上图中的设计可以引入**垂直分组vertical grouping**或**水平分组horizontal grouping**对SSTables进行管理以确保正确的合并
 
-     **垂直分组**中每个组内的SSTables都存在重叠，而组之间则不存在重叠，从而**触发合并时以组为单位**，合并某一组内的所有SSTables来产生下一层新的SSTable并插入对应的组中
-
-     **水平分组**内每个SSTables之间都不存在重叠，因此一个组成部分进行逻辑分区后就可以直接作为一个组，每一层的多个组成部分作为多个组，只有一个作为**活跃组**并接收上一层合并产生的新SSTables，当合并时需要选择所有组的key重叠部分进行合并，产生的新SSTables就加入下一层的活跃组
+     **分区情况下的合并可能产生多个新的SSTables**，这是因为**合并后需要适配下一层已有组的key范围**，具体过程如下：
+     - **垂直分组**中每个组内的SSTables都存在重叠，而组之间则不存在重叠，从而**触发合并时以组为单位**，合并某一组内的所有SSTables来产生下一层新的SSTable并插入对应的组中，例如上图中垂直分组情况下`0-31`和`0-30`合并后（根据下一层的分组情况`0-13`和`17-31`）实际产生了`0-12`和`17-31`两个子SSTables，分别加入下一层key范围不重叠的组
+     - **水平分组**内每个SSTables之间都不存在重叠，因此一个组成部分进行逻辑分区后就可以直接作为一个组，每一层的多个组成部分作为多个组，只有一个作为**活跃组**并接收上一层合并产生的新SSTables，当合并时需要选择所有组的key重叠部分进行合并，产生的新SSTables就加入下一层的活跃组，例如上图中水平分组情况下`35-70`和`35-65`合并后（适配下一层已有分组中的`32-50`和`52-75`）实际产生了`35-52`和`53-70`两个子SSTables，但水平分组的情况下两者一起加入下一层活跃组
 
 3. **Concurrency Control and Recovery**
    LSM树的并发支持通常采用**锁机制locking scheme**或是**多版本机制multi-version scheme**来实现，由于LSM树本身会保存key的多个版本并且其合并操作会丢弃过时的数据，因此很自然的可以支持多版本并发控制，但是LSM树特有的**合并操作会对元数据做出修改**，因此必须被同步，通常可以对**每个组成部分维护一个引用计数**，在访问LSM树前，首先获得**当前所有活跃组成部分的快照**，并增加其引用计数从而保证使用中的组成部分不会因为合并而被垃圾回收
@@ -123,7 +123,7 @@ LSM树通过设计了一个**合并过程merge process**来解决上述问题，
 
 LSM树有诸多缺点，也是诸多研究希望改善的方面：
 
-- **写放大 Write Amplification**：空间放大导致了LSM树会过度使用现代SSD存储设备，同时也限制了写入性能
+- **写放大 Write Amplification**：写放大导致了一条记录可能被反复多次写入实际设备，过度使用现代SSD存储设备，同时也限制了写入性能
 - **合并操作 Merge Operations**：合并会导致缓存失效以及写暂停write stall
 - **硬件 Hardware**：原始LSM树是针对HDD设计的，使用顺序写入代替随机写入，因为HDD顺序I/O性能远高于随机I/O性能，而现代更为广泛使用的SSD/NVM则拥有不同的I/O表现，通过针对不同的底层存储设备的特性可以修改LSM树的实现来充分挖掘硬件的性能
 - **特殊负载 Special Workloads**：在特殊的工作负载下，LSM树的表现未必是最优的，通过利用特殊负载的性质来修改LSM树可以获得独特的更高性能
@@ -131,3 +131,26 @@ LSM树有诸多缺点，也是诸多研究希望改善的方面：
 - **二级索引 Secondary Indexing**：LSM树只提供了针对key（索引）的操作，通常业务往往也需要能够高效处理non-key的属性，即需要二级索引
 
 ![5](images/LSM_survey5.png)
+
+### 3.2 Reducing Write Amplification
+
+### 3.2.1 Tiering
+
+由于leveling策略需要频繁的merge，从而拥有更高的写放大，因此简单直白的优化方式就是直接采用tiering策略，但也会引入查询性能劣化、空间利用率下降的问题，在采用tiering策略的基础上，很多研究进一步探索了一系列**基于partitioned tiering**的LSM树变种
+
+- **WriteBuffer (WB) Tree**
+  - **partitioned tiering with vertical grouping**
+  - **hash-partitioning对工作负载进行负载均衡**：从而每个SSTable组持有相近的数据量
+  - **SSTable组被组织成B+树**：利用B+树实现自平衡self-balancing**来减少总共的LSM树层数，每个SSTable组都作为B+树中的一个节点，当非叶节点的组满时（达到 $T$ 个SSTables）该组发生合并并加入到子节点对应的SSTable组中；当叶节点的组满时，该组发生合并但合并成2个组，即一半数据（ $T/2$ 个SSTables）占一个新组，作为两个新的叶节点
+- **Light-weight compaction tree, LWC-tree**
+  - **partitioned tiering with vertical grouping**
+  - **自平衡**：由于垂直分组中的SSTables不再是固定大小的，而是在发生合并时根据下一层的分组重叠的key范围进行重新确定的大小，因此LWC树中如果一个组包含了过多的记录数（数据倾斜），就会在**合并发生后主动缩小该组（合并结束后以及为空）的key范围并扩大相邻组的key范围**，从而后续的数据持续加入该组时分流到相邻组实现自平衡，减轻数据倾斜程度
+- **PebblesDB**
+  - **partitioned tiering with vertical grouping**
+  - **基于guards来确定key范围**：在确定组的key范围时引入了skip-list中的guard概念，即通过**对插入数据采样分析分布的概率**，从而确定key的范围实现更为均衡的分区，一旦选定了一个guard就会在下一次合并时生效，即懒惰自平衡
+  - **对SSTables并行访问提升范围查询性能**
+- **dCompaction**
+  - **virtual SSTables和virtual merge**：一次virtual merge产生的新SSTables实际上只是包含指向多个原SSTables位置的virtual SSTables，从而**减少/推迟物理合并**的发生来提升写入性能，但会降低读取性能
+  - **virtual SSTable threshold**：由于virtual SSTable指向了多个原SSTables导致了查询性能的下降，因此引入threshold要求当合并所需的真实SSTables超过该值时必须触发物理合并，相当于限制virtual SSTable指涉的真实SSTables数量，当超过时就会触发真实的物理合并
+  - **read triggered merge**：当查询过程中遇到了超过一定数量的虚拟SSTabels指涉真实SSTables，也可以触发物理合并
+- **SifrDB**
