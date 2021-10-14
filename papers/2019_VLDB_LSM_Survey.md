@@ -184,6 +184,21 @@ TRIAD还会直接利用被废弃的旧事务日志文件作为一个磁盘组成
 
 ### 3.3.1 Improving Merge Performance
 
+**VT-tree**提出了一种合并时的**缝合stitching**操作来提升合并性能，具体来说当某个SSTable参与合并时，若相应的数据页所包含的key范围与其他需要合并的SSTables的所有数据页包含的key都不重合时，就直接在产生的新SSTables对应的位置指向此数据页而不发生读取和拷贝，这种方式在特定的工作负载下可以提升性能，但是缺点明显，主要是：
+
+- 可能导致**碎片化fragmentation**，不同的数据页分散在磁盘上，VT-tree进一步引入了缝合阈值stitching threshold来避免碎片化过于严重
+- 合并时跳过了读取这些页的数据，从而对于合并后新产生的SSTables就**无法构建bloom filter**，VT-tree进一步引入了quotient filters来避免访问原始keys
+
+另外也有研究者提出了采用**流水线式的合并操作充分利用CPI和I/O的并行性**来提升合并性能，主要来自于合并操作的以下三个阶段：
+
+1. 读阶段需要从输入的SSTables中读取数据页，此时是I/O密集的
+2. 合并排序阶段需要将所有读取的数据页合并并排序产生新的数据页，此时是CPU密集的
+3. 写阶段需要将新数据页写入到磁盘中，此时是I/O密集的
+
+因此当page 1第一阶段完成进入第二阶段时，就可以开始page 2的第一阶段，而不必等到page 1完全结束，从而构建处理流水线如下图（实际的系统中如RocksDB已经**通过read-ahead和write-behind实现了某种形式的流水线**）：
+
+![7](images/LSM_survey7.png)
+
 ### 3.3.2 Reducing Buffer Cache Misses
 
 ### 3.3.3 Minimizing Write Stalls
