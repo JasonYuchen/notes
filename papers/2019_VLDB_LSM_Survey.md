@@ -216,3 +216,10 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 ![8](images/LSM_survey8.png)
 
 ### 3.3.3 Minimizing Write Stalls
+
+相比于写入延迟稳定可控的B+树而言，LSM树的写入性能更高，但由于后台的flush和compaction服务而有**难以预见的延迟毛刺**
+
+**bLSM**提出了一种**spring-and-gear合并调度器**来最小化写入暂停（仅针对unpartitioned leveling策略），其基本原理在于**容忍每一层存在一个额外的组成部分从而允许多个层进行并行合并**，并且合并调度器会确保只有在level L+1完成了合并操作后，level L才会合并产生level L+1的新组成部分，这种方式会级联向上（back pressure）最终反馈到内存组成部分的写入速度，这种方式的缺点有：
+
+- 仅用于**unpartitioned leveling**策略的LSM数
+- 只是限制了内存组成部分的最大写入延迟，而通常更影响性能的**排队延迟queuing latency却被忽略了**，因此最终用户侧的延迟依然有较大的不可控成分
