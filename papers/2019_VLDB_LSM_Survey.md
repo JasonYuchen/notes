@@ -237,3 +237,53 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 基于FloDB的缺陷，**Accordion**采用了多层设计来管理大的内存组成部分，顶层是一个内存中的较小可变组成部分来处理写入，当此部分充满时就会直接与同样处于内存中的下一层合并（而不是刷写到磁盘上），并且其下还会有一层内存中的组成部分，从而实现**内存中的高效合并**，整体来说类似于将磁盘上的前几层移入内存
 
 ![9](images/LSM_survey9.png)
+
+### 3.4.2 Multi-Core
+
+**cLSM**针对多核系统特别优化，并且设计了新的并发控制算法，其将组**成部分组织在一个并发链表中**来减小并发操作的同步代价，刷写flush和合并merge操作都被设计成对此并发链表的原子操作atomic operation从而不会阻塞读写请求
+
+当一个内存组成部分充满时，新的内存组成部分会在旧组成部分刷写进磁盘的同时创建，写数据会需要先获得**共享锁shared lock**，而刷写操作需要先获得**独占锁exclusive lock**，从而避免在刷写时旧组成部分被写入数据，另外cLSM还支持快照扫描（**多版本multi-versioning**）以及原子的read-modify-write操作（**乐观并发控制optimistic concurrency control**）
+
+### 3.4.3 SSD/NVM
+
+传统磁盘HDD的顺序I/O性能通常远高于随机I/O性能，而现代新存储设备例如**固态磁盘solid state drives, SSDs**和**非易失内存non-volatile memories, NVMs**往往能够提供相当高效的字节级别的随机访问性能byte-addressable random accesses
+
+- **FD-tree**
+  采用了类似LSM树的策略来减少随机I/O，但有一个显著区别在于FD-tree利用了**fractional cascading**来提升查询性能而非常见的bloom filter
+
+  在每一层的组成部分上，FD-tree额外存储了**屏障指针fence pointer**来指向下一层的每个数据页，当在level 0完成二分搜索定位后就可以通过屏障指针直接访问磁盘上level 1的数据页（这个过程利用了随机I/O），并可以继续访问所有层的数据
+
+  ![10](images/LSM_survey10.png)
+
+  屏障指针的设计使**合并操作更为复杂**，当level L合并入level L+1时所有level 0到level L-1也必须合并来重建所有的屏障指针，即**fractional cascading**，确保指向下一层正确的数据页，另一方面由于bloom filter的缺失，**查询不存在的key时需要访问磁盘**上的数据，因此实际工程中的LSM树依然更偏爱bloom filter
+- **FD+tree**
+  FD-tree的fractional cascading导致了需要合并level L时从level 0到level L-1都必须合并出新的组成部分，导致了近一倍的额外临时磁盘占用，FD+tree通过**增量式的激活新的组成部分并同时回收未被使用的旧组成部分的数据页来减轻合并时的磁盘占用情况**
+- **materialized sort-merge, MaSM**
+  MaSM主要针对数据仓库类型的工作负载进行优化（即**update-intensive负载**），所有写入数据都会被直接写入到SSD上的缓冲区构成中间组成部分intermediate components，采用tiering merge策略在低写放大的情况下管理这些中间组成部分，随后这些数据会被再一次合并到底层的HDD基础存储设备中，相当于**SSD充当了高性能的写入缓冲区，而合并操作被延后从而降低了写入放大**
+
+  同时数据仓库的查询请求往往都是[长范围查询long range query](#23-cost-analysis)，SSD中的中间组成部分引入的额外开销往往可以忽略不计（被查询底层基于HDD的大量数据所掩盖）
+- **WiscKey**
+  由于**SSD对写入放大非常敏感**（以块可擦写次数计的SSD寿命显著短于HDD寿命）而同时又拥有较高的随机I/O性能，**WiscKey**首先提出了**key和value分离**的设计，从而显著减小了写入放大
+
+  WiscKey直接将key-value存入仅追加的日志文件，而**LSM树就相当于在日志文件上构建的索引，存储key-location**，但缺点在于**范围查询的代价显著提高，所有的value不再排序**，因此范围查询通常需要扫描全部数据
+
+  ![11](images/LSM_survey11.png)
+
+  为了避免日志无限增长，WiscKey中采用**三阶段的垃圾回收**进行控制日志体积：
+  1. 从头扫描日志到将要被截断的位置（上图中的tail部分）并校验此中包含的所有key-value，每个key通过LSM树查询到相应的location（被证明这个**随机点查询是垃圾回收的瓶颈**）确定是否与扫描的位置匹配，匹配说明未被修改过，属于有效记录
+  2. 对于有效记录，需要重新添加到日志末尾并更新其在LSM树中的location，对于无效记录直接忽略
+  3. tail部分被回收
+- **HashKV**
+  在WiscKey的基础上，HashKV主要**改进了WiscKey垃圾回收过程**，将**value日志根据key进行分区**，从而垃圾回收每个分区可以独立并发进行
+  
+  具体回收一个分区时HashKV首先通过group-by的操作获得每个key的最新值，有效的key-value就被添加到**新的日志文件分区**中并更新LSM树中的位置，HashKV还会将冷数据单独存放从而可以额外减少冷数据被垃圾回收的频率
+- **Keron**
+  Keron利用了**内存映射方式memory-mapped I/O**来减少数据拷贝导致的CPU开销，其在Linux内核中实现了一个自定义的memory-mapped I/O manager来控制缓存替换策略并且启用了盲写blind writes
+
+  为了提高范围查询的性能，Keron会在处理查询请求时直接将被一起访问到的数据共同存储到新的位置
+- **NoveLSM**
+  NoveLSM是**针对NVMs设计**的LSM树，当基于DRAM的内存组成部分充满时就会创建基于NVM的内存组成部分来提供写入**避免出现写入暂停write stall**
+
+  由于NVM本身提供了持久性，**写入基于NVM的组成部分时就不再写入日志**，从而进一步优化了写入性能
+
+### 3.4.4 Native Storage
