@@ -287,3 +287,18 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
   由于NVM本身提供了持久性，**写入基于NVM的组成部分时就不再写入日志**，从而进一步优化了写入性能
 
 ### 3.4.4 Native Storage
+
+部分研究者试图直接管理底层存储设备（HDDs和SSDs）来进一步优化LSM树的性能
+
+- **LSM-tree-based Direct Storage, LDS**
+  绕过操作系统的文件子系统，充分挖掘LSM树的顺序I/O特性，LDS的磁盘布局包含三个部分：块chunks，版本日志version log，备份日志backup log
+  
+  块存储了LSM树的磁盘组成部分，版本日志存储了LSM树元数据在每次flush和merge时发生的修改（例如记录过期的块，合并后新生成的块等），并且版本日志会定期执行快照操作避免随着元数据修改而不断增长过长，而备份日志则作为WAL记录内存中的写操作来保证可靠性
+- **LOCS**
+  LOCS是在open-channel SSDs上实现的LSM树，通过充分挖掘open-channel SSDs上的I/O并行性来提升LSM树的性能，这种SSD上每个channel都可以看作是一个逻辑磁盘，从而应用程序可以通过不同的channel来实现并发
+
+  LOCS采用**最小权重队列长least-weighted-queue-length策略**将所有flush和merge产生的磁盘写入分配给每个channel，由于磁盘读请求必须由保存了数据的channel来服务，LOCS进一步将partitioned LSM树中不同层的SSTables分配（基于key范围）给不同的channels，从而在后续合并或查询时就可以并行从多个channels中读取
+- **NoFTL-KV**
+  传统SSD中的flash translation layer, FTL层将逻辑磁盘地址映射到物理磁盘地址，从而可以实现擦写均衡wear leveling提升SSD的使用寿命（定义为每个块的可擦写次数）
+
+  NoFTL-KV将FTL抽取出来，直接管理底层的SSD数据块，来实现更高效的数据存放、垃圾回收以及合并操作，并降低写入放大
