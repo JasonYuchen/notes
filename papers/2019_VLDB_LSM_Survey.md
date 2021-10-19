@@ -302,3 +302,21 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
   传统SSD中的flash translation layer, FTL层将逻辑磁盘地址映射到物理磁盘地址，从而可以实现擦写均衡wear leveling提升SSD的使用寿命（定义为每个块的可擦写次数）
 
   NoFTL-KV将FTL抽取出来，直接管理底层的SSD数据块，来实现更高效的数据存放、垃圾回收以及合并操作，并降低写入放大
+
+## 3.5 Handling Special Workloads
+
+- **时序数据 temporal data**
+  **log-structed history access method, LHAM**针对时序数据额外优化，**核心在于对每个组成部分都附加上一个时间戳的范围**，从而在查询数据时通过时间戳剪枝迅速过滤掉不符合要求的组成部分，并且LHAM还通过合并时总是合并最旧的组成部分（相当于**基于时序合并**）来保证每个组成部分的时间戳互不重叠
+- **小数据 small data**
+  **LSM-trie**是一种基于LSM的散列索引，支持管理大量key-value对很小的数据，其基本结构采用了partitioned tiering设计，`TODO`
+
+  ![12](images/LSM_survey12.png)
+
+  其主要的设计场景为管理**海量key-value对**（如果采用常规的LSM树则即使是元数据、索引或bloom filter的数据都无法充分缓存）并只需要使用点查询（大量使用散列）
+
+- **半有序数据 semi-sorted data**
+  **SlimDB**主要针对了半有序数据，其key的设计包括一个前缀`x`和一个后缀`y`，因此支持同时指定`x y`的点查询或是只指定`x`的范围查询，SlimDB采用了混合结构，其较低层是tiering而较高层是leveling，`TODO`
+- **追加为主数据 append-mostly data**
+  由于tiering和leveling策略的层数L都依赖于总的记录数，因此对于持续追加的数据而言，层数L不断上升会显著提高所有操作的代价
+
+  Mathieu等研究者提出了两种新的合并策略**MinLatency**和**Binomial**来实现追加为主负载的写入代价下界
