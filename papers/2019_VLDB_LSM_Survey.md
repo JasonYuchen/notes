@@ -320,3 +320,15 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
   由于tiering和leveling策略的层数L都依赖于总的记录数，因此对于持续追加的数据而言，层数L不断上升会显著提高所有操作的代价
 
   Mathieu等研究者提出了两种新的合并策略**MinLatency**和**Binomial**来实现追加为主负载的写入代价下界
+
+## 3.6 Auto-Tuning
+
+### 3.6.1 Parameter Tuning
+
+Lim等人提出了一个考虑了key分布情况的分析模型，来描述LSM树的操作代价，核心原因在于**引入了key分布情况后[前文](#23-cost-analysis)的最坏情况代价分析就不再准确**，例如一个key如果在很早阶段就已经被删除或者更新，则后续的合并就不会涉及到多次写入同一个key，从而写入代价就会减少
+
+假定对key的操作有先验知识，每个写请求修改某个key的概率为 $f_K(k)$，给定 $p$ 次写请求，则唯一的key数量可以估计为 $Unique(p)=N-\sum_{k \in K}(1-f_K(k))^p$，其中 $N$ 为总共的唯一key数量，通过引入这个key分布模型就可以修正LSM树的操作代价估计
+
+**Monkey**将merge policy、size ratio、memory allocation一起考虑参与LSM树的多参数调优，发现了常规的bloom filter设计策略（对所有层的过滤器都采用相同的位向量长度）是次优的结果：对于含有数据最多的最底层（level大）组成部分，消耗了最多的bloom filter空间但是至多只能节约T次磁盘I/O操作（T个组成部分）
+
+为了降低整体bloom filters的假阳性误报，Monkey提出应该**给顶层（level小）的数据量较少的SSTables分配更多的bloom filters位向量来降低误报率**，能够更有效的节约磁盘操作并且减少消耗在底层（level大）bloom filters的内存（给底层分配更多位向量节约的I/O次数有限，至多为T），从而在这种不同层bloom filter误报率不同的设计之下可以认为**点查询的代价主要由最底层决定**，对leveling策略是 $O(e^{-M/N})$ ，对tiering策略是 $O(T \cdot e^{-M/N})$
