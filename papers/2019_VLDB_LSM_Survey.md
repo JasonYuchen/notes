@@ -332,3 +332,25 @@ Lim等人提出了一个考虑了key分布情况的分析模型，来描述LSM�
 **Monkey**将merge policy、size ratio、memory allocation一起考虑参与LSM树的多参数调优，发现了常规的bloom filter设计策略（对所有层的过滤器都采用相同的位向量长度）是次优的结果：对于含有数据最多的最底层（level大）组成部分，消耗了最多的bloom filter空间但是至多只能节约T次磁盘I/O操作（T个组成部分）
 
 为了降低整体bloom filters的假阳性误报，Monkey提出应该**给顶层（level小）的数据量较少的SSTables分配更多的bloom filters位向量来降低误报率**，能够更有效的节约磁盘操作并且减少消耗在底层（level大）bloom filters的内存（给底层分配更多位向量节约的I/O次数有限，至多为T），从而在这种不同层bloom filter误报率不同的设计之下可以认为**点查询的代价主要由最底层决定**，对leveling策略是 $O(e^{-M/N})$ ，对tiering策略是 $O(T \cdot e^{-M/N})$
+
+### 3.6.2 Tuning Merge Policies
+
+**Dostoevsky**表明主流的leveling或tiering策略对某些工作负载来说都是次优的，对于leveling来说其点查询、长范围查询、空间放大都取决于最大的一层，而其写入代价则是每一层均摊的
+
+Dostoevsky引入了**lazy-leveling merge策略**，在level小的层采用tiering策略，而在level最大层采用leveling策略，从而**lazy-leveling策略相比于leveling策略拥有更好的写入代价**，并有相似的点查询代价、长范围查询代价和空间放大，唯一弱点在于相对更差的短范围查询代价（因为level小的层中tiering策略产生了更多组成部分）
+
+Dostoevsky进一步泛化了**混合策略hybrid policy**的模式来分别约束最大层和其余层，分别对最大层引入了参数 $Z$ 代表最大层允许的组成部分数量以及参数 $K$ 代表其余层允许的组成部分数量，并采用类似Monkey的做法来分析不同工作负载下的最优参数配置
+
+Thonangi和Yang进一步研究了分区partitioning对LSM树写入操作的影响，提出了**ChooseBest策略在合并时总是选择下一层中拥有最少重叠key的SSTables来参与合并**，来约束最坏情况下的合并代价，但这种合并策略并不是在所有情况下都比常规的非分区合并策略更好
+
+### 3.6.3 Dynamic Bloom Filter Memory Allocation
+
+现有的LSM实现中（包括对bloom filter提出优化的[Monkey](#361-parameter-tuning)）均采用了静态的bloom filter分配方式，即当一个组成部分的bloom filter被创建后，其假阳性率也就不会再改变，而**ElasticBF**提出了动态调整bloom filter的方式，从而可以**根据热点和访问模式调整bloom filter**改变假阳性率并提升读性能
+
+当给定一个key的bloom filter位向量长度为 $k$ 时，ElasticBF会**构建一系列更小位向量长度的bloom filters**从而满足 $k_1 + k_2 + ... + k_n = k$ ，当所有bloom filters均启用时就和原先的假阳性率相等，而在运行过程中ElasticBF会**根据访问频率等统计数据动态激活/停用这些小的bloom filters**，这种优化在bloom filter内存受限的情况下较为明显，当内存较大且bloom filter的位向量较长时其假阳性率本身足够低，这种优化效果有限
+
+### 3.6.4 Optimizing Data Placement
+
+**Mutant**针对云存储上的LSM树进行了优化，因为云存储不同的设备拥有不同的性能和价格，因此Mutant根据每个SSTables的访问频率来控制存储位置，对于较小的热点数据SSTables就会存储在高速的SSDs上
+
+这种优化问题（给定预算最大化系统的性能）等价于0/1背包问题，通常采用贪心算法来获取次优解，本身是NP hard问题
