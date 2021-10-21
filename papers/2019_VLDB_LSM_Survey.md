@@ -28,46 +28,50 @@ LSM树通过设计了一个**合并过程merge process**来解决上述问题，
 
 ### 2.2 Today's LSM-trees
 
-1. **Basic Structure**
-   现在的LSM树设计基本上沿袭了原始LSM树的核心设计，并且所有磁盘上的**组成部分都是不可变的immutability**，当需要合并时直接读取被合并的组成部分并生成新的组成部分，从而并发控制和故障恢复更为简单
+#### 2.2.1 Basic Structure
 
-   一个LSM树的组成部分可以采用任何索引结构，现在的LSM树通常会采用利于并发的数据结构例如**跳表skip-list或是B+树作为内存中的组成部分**，而采用**B+树或有sorted-string table, SSTables作为磁盘上的组成部分**，一个SSTable包含一系列数据块以及一个索引块，数据块存储根据key排序后的key-value对，而索引块存储所有数据块的key范围，[具体见此](https://github.com/JasonYuchen/notes/blob/master/ddia/03.Storage_and_Retrieval.md#2-sorted-string-table-sstable%E5%92%8Clog-structured-merge-trees-lsm-trees)
+现在的LSM树设计基本上沿袭了原始LSM树的核心设计，并且所有磁盘上的**组成部分都是不可变的immutability**，当需要合并时直接读取被合并的组成部分并生成新的组成部分，从而并发控制和故障恢复更为简单
 
-   一个点查询请求需要依次搜索多个LSM树的组成部分来**确定数据的最新值即reconciliation**，通常从内存的组成部分开始逐个遍历，**一旦找到key就是最新的值**，但是没有找到就需要一直遍历直到所有组成部分才能最终确定这个key是否存在以及对应的value的最新值，对于**范围查询则是同时遍历所有组成部分**并且将满足范围的结果加入到结果集中
+一个LSM树的组成部分可以采用任何索引结构，现在的LSM树通常会采用利于并发的数据结构例如**跳表skip-list或是B+树作为内存中的组成部分**，而采用**B+树或有sorted-string table, SSTables作为磁盘上的组成部分**，一个SSTable包含一系列数据块以及一个索引块，数据块存储根据key排序后的key-value对，而索引块存储所有数据块的key范围，[具体见此](https://github.com/JasonYuchen/notes/blob/master/ddia/03.Storage_and_Retrieval.md#2-sorted-string-table-sstable%E5%92%8Clog-structured-merge-trees-lsm-trees)
 
-   随着正常运行，磁盘上的组成部分会越来越多，此时需要通过前文描述的合并过程进行合并组成部分、仅保留key的较新值、剔除被标记删除的值，如上图所示，最优的情况就是每一层之间的尺寸比例为`T`，因此在**leveling merge policy下每一层只有单个组成部分**，并且这个组成部分的尺寸是上一层的`T`倍大小，当尺寸达到上一层的`T`倍时该层才会被放入下一层；而在**tiering merge policy下每一层都有至多`T`个组成部分**，当任意层达到`T`时就会全部被合并为一个组成部分并放在下一层中
+一个点查询请求需要依次搜索多个LSM树的组成部分来**确定数据的最新值即reconciliation**，通常从内存的组成部分开始逐个遍历，**一旦找到key就是最新的值**，但是没有找到就需要一直遍历直到所有组成部分才能最终确定这个key是否存在以及对应的value的最新值，对于**范围查询则是同时遍历所有组成部分**并且将满足范围的结果加入到结果集中
 
-   对于leveling merge policy而言，由于每一层只有一个组成部分，因此**对读请求相对友好，每一层只需查询一个组成部分**，例如LevelDB和RocksDB；对于tiering merge policy而言，由于每一层可以有更多的组成部分，因此**对写请求更加友好，多个组成部分减少了合并的频率**，例如Cassandra
+随着正常运行，磁盘上的组成部分会越来越多，此时需要通过前文描述的合并过程进行合并组成部分、仅保留key的较新值、剔除被标记删除的值，如上图所示，最优的情况就是每一层之间的尺寸比例为`T`，因此在**leveling merge policy下每一层只有单个组成部分**，并且这个组成部分的尺寸是上一层的`T`倍大小，当尺寸达到上一层的`T`倍时该层才会被放入下一层；而在**tiering merge policy下每一层都有至多`T`个组成部分**，当任意层达到`T`时就会全部被合并为一个组成部分并放在下一层中
 
-2. **Well-Known Optimizations**
-   在现在大多数LSM树实现中都采用了以下两大优化措施：
-   - **布隆过滤器 Bloom Filter**
-     当插入新key时，key被散列多次映射到位向量的多个不同位置，这些位置被置1；当判断一个key是否存在时就通过相同的方式判断位向量的多个不同位置是否为1，只要有1个位置是0就说明不存在，如果所有位置都是1就说明**可能存在**，需要考虑到散列冲突的情况，因此布隆过滤器是一个概率查询结构，可能存在假阳性，但一定不存在假阴性
+对于leveling merge policy而言，由于每一层只有一个组成部分，因此**对读请求相对友好，每一层只需查询一个组成部分**，例如LevelDB和RocksDB；对于tiering merge policy而言，由于每一层可以有更多的组成部分，因此**对写请求更加友好，多个组成部分减少了合并的频率**，例如Cassandra
 
-     **对磁盘上的LSM树组成部分构建内存中的布隆过滤器**，从而当一定不存在时就可以避免读取磁盘数据，显著提升查询速度，当可能存在时才读取磁盘上的B+树索引进而精确判定组成部分中是否有这个key
+#### 2.2.2 Well-Known Optimizations
 
-     另一种措施是**只对组成部分的B+树索引叶结点构建布隆过滤器**，此时依然需要首先通过B+树索引非叶节点部分（通常这种方式往往认为非叶节点部分足够小完全可以放置在内存中）来确定叶节点，随后先读取布隆过滤器来确定叶节点中是否有可能存在需要的数据而不是真正去读取叶节点数据
+在现在大多数LSM树实现中都采用了以下两大优化措施：
 
-     布隆过滤器的假阳性概率为 $(1-e^{-kn/m})^k$，其中 $k$ 为散列函数的数量， $n$ 为key的数量， $m$ 为位向量的长度，假阳性率最低时 $k=(m/n)ln2$ ，**实践中通常直接采用`10 bits/key`从而获得约1%的假阳性率**
-   - **分区 Partitioning**
-     单个磁盘组成部分较大时会有诸多性能劣化的可能性，采用**范围分区**的方式将组成部分分割为多个较小的分区，为了便于理解**每个分区称为一个SSTable**，将一个较大的组成部分分为多个小的SSTable后，**有利于合并操作时粒度更细**，即单次处理较小的数据量、产生较小的中间结果、处理时间较短，另一方面也**有利于分割处理数据的范围减少重叠**，只需要合并key范围存在重叠的SSTable
+- **布隆过滤器 Bloom Filter**
+  当插入新key时，key被散列多次映射到位向量的多个不同位置，这些位置被置1；当判断一个key是否存在时就通过相同的方式判断位向量的多个不同位置是否为1，只要有1个位置是0就说明不存在，如果所有位置都是1就说明**可能存在**，需要考虑到散列冲突的情况，因此布隆过滤器是一个概率查询结构，可能存在假阳性，但一定不存在假阴性
 
-     **分区的优化手段可以与合并策略组合使用**，例如leveling + partitioning或tiering + partitioning如下图，实际实现中例如LevelDB和RocksDB完全实现了leveling + partitioning
+  **对磁盘上的LSM树组成部分构建内存中的布隆过滤器**，从而当一定不存在时就可以避免读取磁盘数据，显著提升查询速度，当可能存在时才读取磁盘上的B+树索引进而精确判定组成部分中是否有这个key
 
-     图4中可以看出level 0的组成部分并没有分区，这些内存组成部分是直接刷写到磁盘上的，当需要将SSTable从`L`层合并到`L+1`层时所有`L+1`层中与该SSTable存在key范围重叠的SSTables一起参与合并，如图中的`0-15`和`16-32`需要与`0-30`合并，并且合并后原先的`0-30`就会被垃圾回收，**由于触发合并时任意一个`L`层的SSTable都可以被选择，因此可以有不同的选择算法**，LevelDB采用简单的round-robin策略来减小总的写入成本
+  另一种措施是**只对组成部分的B+树索引叶结点构建布隆过滤器**，此时依然需要首先通过B+树索引非叶节点部分（通常这种方式往往认为非叶节点部分足够小完全可以放置在内存中）来确定叶节点，随后先读取布隆过滤器来确定叶节点中是否有可能存在需要的数据而不是真正去读取叶节点数据
 
-     ![4](images/LSM_survey4.png)
+  布隆过滤器的假阳性概率为 $(1-e^{-kn/m})^k$，其中 $k$ 为散列函数的数量， $n$ 为key的数量， $m$ 为位向量的长度，假阳性率最低时 $k=(m/n)ln2$ ，**实践中通常直接采用`10 bits/key`从而获得约1%的假阳性率**
+- **分区 Partitioning**
+  单个磁盘组成部分较大时会有诸多性能劣化的可能性，采用**范围分区**的方式将组成部分分割为多个较小的分区，为了便于理解**每个分区称为一个SSTable**，将一个较大的组成部分分为多个小的SSTable后，**有利于合并操作时粒度更细**，即单次处理较小的数据量、产生较小的中间结果、处理时间较短，另一方面也**有利于分割处理数据的范围减少重叠**，只需要合并key范围存在重叠的SSTable
 
-     tiering merge policy同样可以使用分区，但是问题在于**tiering下一层可以有多个组成部分并且其key范围存在重叠**，从而当分区后可能导致多个存在重叠范围的SSTables，而leveling merge polcy中每一层只有一个组成部分可以简单分区成互不重叠的SSTables，此时如上图中的设计可以引入**垂直分组vertical grouping**或**水平分组horizontal grouping**对SSTables进行管理以确保正确的合并
+  **分区的优化手段可以与合并策略组合使用**，例如leveling + partitioning或tiering + partitioning如下图，实际实现中例如LevelDB和RocksDB完全实现了leveling + partitioning
 
-     **分区情况下的合并可能产生多个新的SSTables**，这是因为**合并后需要适配下一层已有组的key范围**，具体过程如下：
-     - **垂直分组**中每个组内的SSTables都存在重叠，而组之间则不存在重叠，从而**触发合并时以组为单位**，合并某一组内的所有SSTables来产生下一层新的SSTable并插入对应的组中，例如上图中垂直分组情况下`0-31`和`0-30`合并后（根据下一层的分组情况`0-13`和`17-31`）实际产生了`0-12`和`17-31`两个子SSTables，分别加入下一层key范围不重叠的组
-     - **水平分组**内每个SSTables之间都不存在重叠，因此一个组成部分进行逻辑分区后就可以直接作为一个组，每一层的多个组成部分作为多个组，只有一个作为**活跃组**并接收上一层合并产生的新SSTables，当合并时需要选择所有组的key重叠部分进行合并，产生的新SSTables就加入下一层的活跃组，例如上图中水平分组情况下`35-70`和`35-65`合并后（适配下一层已有分组中的`32-50`和`52-75`）实际产生了`35-52`和`53-70`两个子SSTables，但水平分组的情况下两者一起加入下一层活跃组
+  图4中可以看出level 0的组成部分并没有分区，这些内存组成部分是直接刷写到磁盘上的，当需要将SSTable从`L`层合并到`L+1`层时所有`L+1`层中与该SSTable存在key范围重叠的SSTables一起参与合并，如图中的`0-15`和`16-32`需要与`0-30`合并，并且合并后原先的`0-30`就会被垃圾回收，**由于触发合并时任意一个`L`层的SSTable都可以被选择，因此可以有不同的选择算法**，LevelDB采用简单的round-robin策略来减小总的写入成本
 
-3. **Concurrency Control and Recovery**
-   LSM树的并发支持通常采用**锁机制locking scheme**或是**多版本机制multi-version scheme**来实现，由于LSM树本身会保存key的多个版本并且其合并操作会丢弃过时的数据，因此很自然的可以支持多版本并发控制，但是LSM树特有的**合并操作会对元数据做出修改**，因此必须被同步，通常可以对**每个组成部分维护一个引用计数**，在访问LSM树前，首先获得**当前所有活跃组成部分的快照**，并增加其引用计数从而保证使用中的组成部分不会因为合并而被垃圾回收
+  ![4](images/LSM_survey4.png)
 
-   由于所有写入首先都追加到内存中，使用WAL就可以保证写入数据的持久可靠，**通常的LSM树会采用[no-steal](https://github.com/JasonYuchen/notes/blob/master/cmu15.445/20.Logging.md#%E7%BC%93%E5%AD%98%E6%B1%A0%E7%AD%96%E7%95%A5-buffer-pool-policies)的缓存管理策略**，内存中的组成部分只有在所有活跃的写入事务结束时才会被刷写到磁盘上，在**恢复时因为no-steal的策略从而只需要redo所有成功的事务即可，不需要undo未完成的事务**，因为这些事务并没有刷写到磁盘上；另外需要确保活跃组成部分的列表也能够被恢复，在LevelDB和RocksDB中这通过**额外维护一个元数据日志metadata log来记录所有结构上的修改**，例如SSTables的增减
+  tiering merge policy同样可以使用分区，但是问题在于**tiering下一层可以有多个组成部分并且其key范围存在重叠**，从而当分区后可能导致多个存在重叠范围的SSTables，而leveling merge polcy中每一层只有一个组成部分可以简单分区成互不重叠的SSTables，此时如上图中的设计可以引入**垂直分组vertical grouping**或**水平分组horizontal grouping**对SSTables进行管理以确保正确的合并
+
+  **分区情况下的合并可能产生多个新的SSTables**，这是因为**合并后需要适配下一层已有组的key范围**，具体过程如下：
+  - **垂直分组**中每个组内的SSTables都存在重叠，而组之间则不存在重叠，从而**触发合并时以组为单位**，合并某一组内的所有SSTables来产生下一层新的SSTable并插入对应的组中，例如上图中垂直分组情况下`0-31`和`0-30`合并后（根据下一层的分组情况`0-13`和`17-31`）实际产生了`0-12`和`17-31`两个子SSTables，分别加入下一层key范围不重叠的组
+  - **水平分组**内每个SSTables之间都不存在重叠，因此一个组成部分进行逻辑分区后就可以直接作为一个组，每一层的多个组成部分作为多个组，只有一个作为**活跃组**并接收上一层合并产生的新SSTables，当合并时需要选择所有组的key重叠部分进行合并，产生的新SSTables就加入下一层的活跃组，例如上图中水平分组情况下`35-70`和`35-65`合并后（适配下一层已有分组中的`32-50`和`52-75`）实际产生了`35-52`和`53-70`两个子SSTables，但水平分组的情况下两者一起加入下一层活跃组
+
+#### 2.2.3 Concurrency Control and Recovery
+
+LSM树的并发支持通常采用**锁机制locking scheme**或是**多版本机制multi-version scheme**来实现，由于LSM树本身会保存key的多个版本并且其合并操作会丢弃过时的数据，因此很自然的可以支持多版本并发控制，但是LSM树特有的**合并操作会对元数据做出修改**，因此必须被同步，通常可以对**每个组成部分维护一个引用计数**，在访问LSM树前，首先获得**当前所有活跃组成部分的快照**，并增加其引用计数从而保证使用中的组成部分不会因为合并而被垃圾回收
+
+由于所有写入首先都追加到内存中，使用WAL就可以保证写入数据的持久可靠，**通常的LSM树会采用[no-steal](https://github.com/JasonYuchen/notes/blob/master/cmu15.445/20.Logging.md#%E7%BC%93%E5%AD%98%E6%B1%A0%E7%AD%96%E7%95%A5-buffer-pool-policies)的缓存管理策略**，内存中的组成部分只有在所有活跃的写入事务结束时才会被刷写到磁盘上，在**恢复时因为no-steal的策略从而只需要redo所有成功的事务即可，不需要undo未完成的事务**，因为这些事务并没有刷写到磁盘上；另外需要确保活跃组成部分的列表也能够被恢复，在LevelDB和RocksDB中这通过**额外维护一个元数据日志metadata log来记录所有结构上的修改**，例如SSTables的增减
 
 ### 2.3 Cost Analysis
 
@@ -134,11 +138,11 @@ LSM树有诸多缺点，也是诸多研究希望改善的方面：
 
 ### 3.2 Reducing Write Amplification
 
-### 3.2.1 Tiering
+#### 3.2.1 Tiering
 
 由于leveling策略需要频繁的merge，从而拥有更高的写放大，因此简单直白的优化方式就是直接采用tiering策略，但也会引入查询性能劣化、空间利用率下降的问题，在采用tiering策略的基础上，很多研究进一步探索了一系列**基于partitioned tiering**的LSM树变种
 
-- **WriteBuffer (WB) Tree**
+- **WriteBuffer Tree, WB-tree**
   - **partitioned tiering with vertical grouping**
   - **hash-partitioning对工作负载进行负载均衡**：从而每个SSTable组持有相近的数据量，但同时由于hash失去了对范围查询的有效支持
   - **SSTable组被组织成B+树**：利用B+树实现自平衡self-balancing**来减少总共的LSM树层数，每个SSTable组都作为B+树中的一个节点，当非叶节点的组满时（达到 $T$ 个SSTables）该组发生合并并加入到子节点对应的SSTable组中；当叶节点的组满时，该组发生合并但合并成2个组，即一半数据（ $T/2$ 个SSTables）占一个新组，作为两个新的叶节点
@@ -158,7 +162,7 @@ LSM树有诸多缺点，也是诸多研究希望改善的方面：
   - **early-cleaning during merges**：合并发生时SifrDB增量激活新创建的SSTables并且停用旧的SSTables
   - **对SSTables并行访问提升查询性能**
 
-### 3.2.2 Merge Skipping
+#### 3.2.2 Merge Skipping
 
 **skip-tree**中提出了一种合并策略来提升写入性能：通常一个记录从level 0逐级合并到level L中，如果中途可以**跳过某些level的合并**就可以减少写入次数/写入放大，从而实现更高的性能
 
@@ -170,7 +174,7 @@ LSM树有诸多缺点，也是诸多研究希望改善的方面：
 
 跳过部分合并过程来减小写放大虽然有效，但引入了复杂的缓冲区设计以及缓冲区的WAL，综合来看skip-tree未必能够显著超过调优后的LSM树
 
-### 3.2.3 Exploiting Data Skew
+#### 3.2.3 Exploiting Data Skew
 
 **TRIAD**提出了**冷热数据分离**的方式来减少写入放大：在有数据倾斜、部分key经常被更新的情况下，将冷热数据分离，热数据放置在内存组成部分中，只刷写冷数据到磁盘组成部分上，从而相当于内存缓存热数据
 
@@ -180,9 +184,9 @@ LSM树有诸多缺点，也是诸多研究希望改善的方面：
 
 TRIAD还会直接利用被废弃的旧事务日志文件作为一个磁盘组成部分，从而减少构建新的磁盘文件，通过对旧事务日志创建一个索引来加快访问
 
-## 3.3 Optimizing Merge Operations
+### 3.3 Optimizing Merge Operations
 
-### 3.3.1 Improving Merge Performance
+#### 3.3.1 Improving Merge Performance
 
 **VT-tree**提出了一种合并时的**缝合stitching**操作来提升合并性能，具体来说当某个SSTable参与合并时，若相应的数据页所包含的key范围与其他需要合并的SSTables的所有数据页包含的key都不重合时，就直接在产生的新SSTables对应的位置指向此数据页而不发生读取和拷贝，这种方式在特定的工作负载下可以提升性能，但是缺点明显，主要是：
 
@@ -199,7 +203,7 @@ TRIAD还会直接利用被废弃的旧事务日志文件作为一个磁盘组成
 
 ![7](images/LSM_survey7.png)
 
-### 3.3.2 Reducing Buffer Cache Misses
+#### 3.3.2 Reducing Buffer Cache Misses
 
 LSM树正常运行过程中，频繁被访问的SSTables数据会被缓存，而在一次合并后，旧SSTable被回收，新生成的SSTables尚未被缓存，从而导致大量缓存失效，影响系统的查询性能
 
@@ -215,7 +219,7 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 
 ![8](images/LSM_survey8.png)
 
-### 3.3.3 Minimizing Write Stalls
+#### 3.3.3 Minimizing Write Stalls
 
 相比于写入延迟稳定可控的B+树而言，LSM树的写入性能更高，但由于后台的flush和compaction服务而有**难以预见的延迟毛刺**
 
@@ -224,11 +228,11 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 - 仅用于**unpartitioned leveling**策略的LSM数
 - 只是限制了内存组成部分的最大写入延迟，而通常更影响性能的**排队延迟queuing latency却被忽略了**，因此最终用户侧的延迟依然有较大的不可控成分
 
-## 3.4 Hardware Opportunities
+### 3.4 Hardware Opportunities
 
-### 3.4.1 Large Memory
+#### 3.4.1 Large Memory
 
-大内存允许更大的内存组成部分，减少整体层数，提升读写性能，但是管理大内存组成部分本身有一定挑战会带来新的问题，假如采用**堆内on-heap**数据结构，则可能导致运行中产生大量的小对象给垃圾回收带来显著的压力，假如采用**堆外off-heap**数据结构例如并发B+树，则依然会有较高的搜索成本以及写入数据时的CPU缓存未命中（[on-heap/off-heap见此]()）
+大内存允许更大的内存组成部分，减少整体层数，提升读写性能，但是管理大内存组成部分本身有一定挑战会带来新的问题，假如采用**堆内on-heap**数据结构，则可能导致运行中产生大量的小对象给垃圾回收带来显著的压力，假如采用**堆外off-heap**数据结构例如并发B+树，则依然会有较高的搜索成本以及写入数据时的CPU缓存未命中（[on-heap/off-heap见此](https://stackoverflow.com/questions/6091615/difference-between-on-heap-and-off-heap)）
 
 **FloDB**提出了一种两层设计来管理大的内存组成部分，**顶层为较小的并发散列表**来支持快速卸乳，**底层是较大的跳表**来支持高效的范围查询，当顶层散列表填满时就会被批量合并入底层的跳表
 
@@ -238,13 +242,13 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 
 ![9](images/LSM_survey9.png)
 
-### 3.4.2 Multi-Core
+#### 3.4.2 Multi-Core
 
 **cLSM**针对多核系统特别优化，并且设计了新的并发控制算法，其将组**成部分组织在一个并发链表中**来减小并发操作的同步代价，刷写flush和合并merge操作都被设计成对此并发链表的原子操作atomic operation从而不会阻塞读写请求
 
 当一个内存组成部分充满时，新的内存组成部分会在旧组成部分刷写进磁盘的同时创建，写数据会需要先获得**共享锁shared lock**，而刷写操作需要先获得**独占锁exclusive lock**，从而避免在刷写时旧组成部分被写入数据，另外cLSM还支持快照扫描（**多版本multi-versioning**）以及原子的read-modify-write操作（**乐观并发控制optimistic concurrency control**）
 
-### 3.4.3 SSD/NVM
+#### 3.4.3 SSD/NVM
 
 传统磁盘HDD的顺序I/O性能通常远高于随机I/O性能，而现代新存储设备例如**固态磁盘solid state drives, SSDs**和**非易失内存non-volatile memories, NVMs**往往能够提供相当高效的字节级别的随机访问性能byte-addressable random accesses
 
@@ -286,7 +290,7 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 
   由于NVM本身提供了持久性，**写入基于NVM的组成部分时就不再写入日志**，从而进一步优化了写入性能
 
-### 3.4.4 Native Storage
+#### 3.4.4 Native Storage
 
 部分研究者试图直接管理底层存储设备（HDDs和SSDs）来进一步优化LSM树的性能
 
@@ -303,7 +307,7 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 
   NoFTL-KV将FTL抽取出来，直接管理底层的SSD数据块，来实现更高效的数据存放、垃圾回收以及合并操作，并降低写入放大
 
-## 3.5 Handling Special Workloads
+### 3.5 Handling Special Workloads
 
 - **时序数据 temporal data**
   **log-structed history access method, LHAM**针对时序数据额外优化，**核心在于对每个组成部分都附加上一个时间戳的范围**，从而在查询数据时通过时间戳剪枝迅速过滤掉不符合要求的组成部分，并且LHAM还通过合并时总是合并最旧的组成部分（相当于**基于时序合并**）来保证每个组成部分的时间戳互不重叠
@@ -321,19 +325,19 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 
   Mathieu等研究者提出了两种新的合并策略**MinLatency**和**Binomial**来实现追加为主负载的写入代价下界
 
-## 3.6 Auto-Tuning
+### 3.6 Auto-Tuning
 
-### 3.6.1 Parameter Tuning
+#### 3.6.1 Parameter Tuning
 
 Lim等人提出了一个考虑了key分布情况的分析模型，来描述LSM树的操作代价，核心原因在于**引入了key分布情况后[前文](#23-cost-analysis)的最坏情况代价分析就不再准确**，例如一个key如果在很早阶段就已经被删除或者更新，则后续的合并就不会涉及到多次写入同一个key，从而写入代价就会减少
 
-假定对key的操作有先验知识，每个写请求修改某个key的概率为 $f_K(k)$，给定 $p$ 次写请求，则唯一的key数量可以估计为 $Unique(p)=N-\sum_{k \in K}(1-f_K(k))^p$，其中 $N$ 为总共的唯一key数量，通过引入这个key分布模型就可以修正LSM树的操作代价估计
+假定对key的操作有先验知识，每个写请求修改某个key的概率为 $f_K(k)$，给定 $p$ 次写请求，则唯一的key数量可以估计为 $Unique(p)=N-\sum_{k \in K}(1-f_K(k))^p$，其中 $N$ 为总共的唯一key数量，通过引入这个key分布模型就可以修正LSM树的操作代价估计，Lim等人通过此模型来调优leveling策略下的最大level尺寸进行LSM树优化
 
 **Monkey**将merge policy、size ratio、memory allocation一起考虑参与LSM树的多参数调优，发现了常规的bloom filter设计策略（对所有层的过滤器都采用相同的位向量长度）是次优的结果：对于含有数据最多的最底层（level大）组成部分，消耗了最多的bloom filter空间但是至多只能节约T次磁盘I/O操作（T个组成部分）
 
 为了降低整体bloom filters的假阳性误报，Monkey提出应该**给顶层（level小）的数据量较少的SSTables分配更多的bloom filters位向量来降低误报率**，能够更有效的节约磁盘操作并且减少消耗在底层（level大）bloom filters的内存（给底层分配更多位向量节约的I/O次数有限，至多为T），从而在这种不同层bloom filter误报率不同的设计之下可以认为**点查询的代价主要由最底层决定**，对leveling策略是 $O(e^{-M/N})$ ，对tiering策略是 $O(T \cdot e^{-M/N})$
 
-### 3.6.2 Tuning Merge Policies
+#### 3.6.2 Tuning Merge Policies
 
 **Dostoevsky**表明主流的leveling或tiering策略对某些工作负载来说都是次优的，对于leveling来说其点查询、长范围查询、空间放大都取决于最大的一层，而其写入代价则是每一层均摊的
 
@@ -343,14 +347,56 @@ Dostoevsky进一步泛化了**混合策略hybrid policy**的模式来分别约�
 
 Thonangi和Yang进一步研究了分区partitioning对LSM树写入操作的影响，提出了**ChooseBest策略在合并时总是选择下一层中拥有最少重叠key的SSTables来参与合并**，来约束最坏情况下的合并代价，但这种合并策略并不是在所有情况下都比常规的非分区合并策略更好
 
-### 3.6.3 Dynamic Bloom Filter Memory Allocation
+#### 3.6.3 Dynamic Bloom Filter Memory Allocation
 
 现有的LSM实现中（包括对bloom filter提出优化的[Monkey](#361-parameter-tuning)）均采用了静态的bloom filter分配方式，即当一个组成部分的bloom filter被创建后，其假阳性率也就不会再改变，而**ElasticBF**提出了动态调整bloom filter的方式，从而可以**根据热点和访问模式调整bloom filter**改变假阳性率并提升读性能
 
 当给定一个key的bloom filter位向量长度为 $k$ 时，ElasticBF会**构建一系列更小位向量长度的bloom filters**从而满足 $k_1 + k_2 + ... + k_n = k$ ，当所有bloom filters均启用时就和原先的假阳性率相等，而在运行过程中ElasticBF会**根据访问频率等统计数据动态激活/停用这些小的bloom filters**，这种优化在bloom filter内存受限的情况下较为明显，当内存较大且bloom filter的位向量较长时其假阳性率本身足够低，这种优化效果有限
 
-### 3.6.4 Optimizing Data Placement
+#### 3.6.4 Optimizing Data Placement
 
 **Mutant**针对云存储上的LSM树进行了优化，因为云存储不同的设备拥有不同的性能和价格，因此Mutant根据每个SSTables的访问频率来控制存储位置，对于较小的热点数据SSTables就会存储在高速的SSDs上
 
 这种优化问题（给定预算最大化系统的性能）等价于0/1背包问题，通常采用贪心算法来获取次优解，本身是NP hard问题
+
+### 3.7 Secondary Indexing
+
+LSM树本身相当于只有一个主键索引，而现实系统中的查询往往更加复杂，需要二级索引的支持，典型的**基于LSM树的二级索引**如下图：
+
+- 一个主键索引primary index及多个二级索引secondary indexes
+- 主键索引直接记录数据，**二级索引记录主键索引的key**
+
+![13](images/LSM_survey13.png)
+
+#### 3.7.1 Index Structures
+
+这一节可以参考comp7801继续补充
+
+- **Log-Structured Inverted Index, LSII**，`TODO`
+- **LSM-based spatial index structures for geo-tagged data**，`TODO`
+- **Filters**，`TODO`
+
+#### 3.7.2 Index Maintenance
+
+维护LSM树的二级索引最大的难点就在于处理**更新updates**，对于LSM树本身来说，更新就是简单的直接追加到内存组成部分，key不变且旧的值自动失效，但是**二级索引需要更新并且需要清除过期的数据**
+
+- **Diff-Index**
+  提出了四种维护二级索引的方式，分别是：
+  - **sync-full**：同步执行加入新数据和删除旧数据，此时二级索引总是最新的，查询请求的处理性能更优，但是由于**删除旧数据需要点查询到旧的数据再从二级索引中删除**，代价较高
+  - **sync-insert**：仅同步执行加入新数据，由查询进行过时数据的懒惰删除，例如查询发现二级索引的某个值并不在LSM树中存在则进行删除
+  - **async-simple**：异步维护索引但保证**最终一致性**，通过将更新加入到异步队列来实现
+  - **async-session**：异步维护索引但保证**会话一致性**，即在客户端侧缓存更新的数据，会话内首先读取缓存的新数据，其余与async-simple一样
+- **Deferred Lightweight Indexing, DELI**
+  基于Diff-Index的sync-insert模式，采用**扫描主键索引组成部分替代查询触发的懒惰删除**，当多个拥有相同key的记录被扫描到时，就会相应的根据过时的值去删除二级索引中对应的索引，且这个**扫描清理过程可以在merge时一起完成**
+  
+  由于这个清理与sync-insert一样是异步的，查询语句在**查询二级索引时依然需要再查询主键索引来校验数据是否有效**，因此DELI不支持只需要扫描索引的查询，因为索引不一定有效
+
+Luo等研究人员还提出了其他优化基于LSM树的各种数据结构的方法，核心在于设计和维护主键索引，**在主键索引上存储key以及timestamp**，从而点查询可以**通过timestamp验证**减少磁盘I/O操作
+
+- **查询时**：从二级索引中获取到主键索引的key时，必须通过直接获取记录或是根据主键索引上的时间戳来判断是否是最新的记录来完成验证
+- **清理时**：异步扫描二级索引，并查询相应的主键索引判断该二级索引是否失效，类似DELI在查询时的校验过程，这里采用了时间戳来避免查询时的校验，提升查询性能
+- **主键索引设计**：采用**可变的位图mutable-bitmap**来作为磁盘组成部分的索引，从而可以高效的在内存中完成主键索引的查询
+
+#### 3.7.3 Statistics Collection
+
+Absalyamov等人提出了针对LSM树的轻量级统计框架，基本思想就是将统计操作融入到flush和merge的操作中，从而摊平统计的额外开销
