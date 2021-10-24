@@ -57,7 +57,7 @@ LSM树通过设计了一个**合并过程merge process**来解决上述问题，
 
   **分区的优化手段可以与合并策略组合使用**，例如leveling + partitioning或tiering + partitioning如下图，实际实现中例如LevelDB和RocksDB完全实现了leveling + partitioning
 
-  图4中可以看出level 0的组成部分并没有分区，这些内存组成部分是直接刷写到磁盘上的，当需要将SSTable从`L`层合并到`L+1`层时所有`L+1`层中与该SSTable存在key范围重叠的SSTables一起参与合并，如图中的`0-15`和`16-32`需要与`0-30`合并，并且合并后原先的`0-30`就会被垃圾回收，**由于触发合并时任意一个`L`层的SSTable都可以被选择，因此可以有不同的选择算法**，LevelDB采用简单的round-robin策略来减小总的写入成本
+  图4中可以看出**level 0的组成部分并没有分区**，这些内存组成部分是直接刷写到磁盘上的，当需要将SSTable从`L`层合并到`L+1`层时所有`L+1`层中与该SSTable存在key范围重叠的SSTables一起参与合并，如图中的`0-15`和`16-32`需要与`0-30`合并，并且合并后原先的`0-30`就会被垃圾回收，**由于触发合并时任意一个`L`层的SSTable都可以被选择，因此可以有不同的选择算法**，LevelDB采用简单的round-robin策略来减小总的写入成本
 
   ![4](images/LSM_survey4.png)
 
@@ -400,3 +400,87 @@ Luo等研究人员还提出了其他优化基于LSM树的各种数据结构的�
 #### 3.7.3 Statistics Collection
 
 Absalyamov等人提出了针对LSM树的轻量级统计框架，基本思想就是将统计操作融入到flush和merge的操作中，从而摊平统计的额外开销
+
+#### 3.7.4 Distributed Indexing
+
+需要注意的是这里涉及到的分布式索引构建方式在大多数分布式数据库系统中都有所应用而不是只用于基于LSM树的系统
+
+Joseph等提出了HBase上采用了两种分布式二级索引的实现：
+
+- **全局二级索引global secondary indexes**
+  单独作为一个表记录了二级索引的key与主键索引的key，并采用**协处理器co-processors**进行维护（类似于传统数据库的触发器trigger），其维护代价很高，因为主键索引分区和二级索引分区可能位于不同的物理节点
+- **本地二级索引local secondary indexes**
+  与全局二级索引不同，本地二级索引将二级索引分区部署在相应的主键索引分区的物理节点，即**co-lcoating**从而避免跨界点通信，缺点是这种二级索引需要手动实现和维护，并且由于**二级索引根据主键索引的key（而不是二级索引的key）进行分区**（这样才能部署在同一个节点），在一次查询时所有节点上的二级索引分区都必须被查询
+
+Zhu等提出了一种**高效加载全局二级索引**的方式，包含三个步骤：
+
+1. 每个主键索引分区都被扫描并构建一个本地的二级索引，期间与二级索引key相关的统计信息被采集
+2. 基于第一步采集到的统计信息，二级索引会基于范围进行分区range partition，这些分区就会被部署到物理节点上
+3. 每个物理节点基于给定的二级索引分区范围，结合第一步中构建的本地二级索引，从其他节点获取属于自己的二级索引keys和主键索引keys（二级索引的value就是主键索引的key）
+
+Duan等提住了**懒惰维护物化视图**的方式，基本思想是将相关的更新追加到一个与物化视图绑定的delta列表中，从而避免更新的同时需要维护物化视图，而后续在查询处理时再将delta列表中的更新应用到物化视图上，相当于减轻了写入的负担，但增加了查询的负担
+
+### 3.8 Discussion of Overall Trade-offs
+
+基于**RUM猜想**，read-optimal、write-optimal、space-optimal不可能在同时达到，从前文的分析可以看出，不同的LSM树变种侧重不同的操作，总结如下表，以最基本的leveling merge policy作为基准，除了Space以外其他类别的`+`代表更优：
+
+- `+`: increase
+- `-`: decrease (`-` is better for space)
+- `o`: unaffected
+- `x`: unsupported
+
+|Publication|Write|Point Lookup|Short Range|Long Range|Space|Remark|
+|:-|:-:|:-:|:-:|:-:|:-:|:-|
+|[WB-tree](#321-tiering)|++|-|--|--|--|Tiering|
+|[LWC-tree](#321-tiering)|++|-|--|--|--|Tiering|
+|[PebblesDB](#321-tiering)|++|-|--|--|--|Tiering|
+|[dCompaction](#321-tiering)|++|-|--|--|--|Tiering|
+|[Zhang et al.](#321-tiering)|++|-|--|--|--|Tiering|
+|[SifrDB](#321-tiering)|++|-|--|--|--|Tiering|
+|[Skip-tree](#322-merge-skipping)|+|-|-|-|o|Mutable skip buffers, cold/hot data separation, delay merges at level 0, logs as components|
+|[TRIAD](#323-exploiting-data-skew)|+|-|-|-|o|Mutable skip buffers, cold/hot data separation, delay merges at level 0, logs as components|
+|[VT-tree](#331-improving-merge-performance)|+|o|-|-|-|Stitching merge|
+|[MaSM](#343-ssdnvm)|++|-|--|-|-|Lazy leveling|
+|[WiscKey](#343-ssdnvm)|+++|-|---|---|---|KV separation|
+|[HashKey](#343-ssdnvm)|+++|-|---|---|---|KV separation|
+|[Kreon](#343-ssdnvm)|+++|-|---|---|---|KV separation|
+|[LSM-trie](#35-handling-special-workloads)|++|+|x|x|--|Tiering + hashing|
+|[SlimDB](#35-handling-special-workloads)|++|+|--/x|-/x|-|Range queries for each key prefix group|
+|[Lim et al.](#361-parameter-tuning)|+|o|o|o|o|Exploit data redundancy|
+|[Monkey](#361-parameter-tuning)|o|+|o|o|o|Better Bloom filter memory allocation|
+|[Dostoevsky](#362-tuning-merge-policies)|++|-|--|-|-|Lazy leveling|
+
+## 4 Representative LSM-based Systems
+
+### 4.1 LevelDB
+
+[LevelDB](https://github.com/google/leveldb)由Google在2011年开源，作为一个嵌入式存储引擎其支持简单的KV操作，采用了[partitioned leveling merge policy](#222-well-known-optimizations)
+
+### 4.2 RocksDB
+
+[RocksDB](http://rocksdb.org)由Facebook在2012年fork了LevelDB并继续发展，加入了大量的新特性且在工业界广泛流行，由于其依然在持续演进，本节仅代表本文所写时（VLDB 2019）的特征
+
+RocksDB与LevelDB相同采用**partitioned leveling merge policy并且默认size ratio为10**，从而约90%的数据都在最大层，确保了至多10%的存储空间用于存储过时的数据（相比之下典型的B+树往往由于碎片化只有2/3充满）
+
+RocksDB有非常多的新特性和优化如下：
+
+- **level 0 merge optimization**
+  level 0的SSTables并没有分区，因此从level 0到level 1的合并通常需要重写level 1的所有SSTables从而成为可能的瓶颈，RocksDB则可以**选择性的在level 0采用tiering merge policy**从而允许在负载尖峰时性能表现更为稳定
+- **dynamic level size scheme**
+  leveling空间放大的理想值 $O(\frac{T+1}{T})$ 只有在最大层达到最大体积时才能达到，而实践中这并不总是能达到，因此RocksDB可以**根据当前最大层的大小动态调整其余level的允许大小**，从而尽可能满足最优的空间放大值
+- **SSTables selection policy**
+  在触发合并时，一层的多个SSTables都可以被选择，RocksDB支持多种选择算法：
+  - **round robin**：LevelDB采用的方法，也是默认的方法，见[前文分析](#222-well-known-optimizations)，综合写入代价较小
+  - **cold first**：优先选择访问不频繁的SSTables，数据倾斜情况下更优，确保了较热的数据总是在较高的level而不会被向下合并到较低层，从而降低了访问开销
+  - **delete first**：优先选择包含更多已经删除数据的SSTables，从而能够在一次合并中释放出更多空间
+- **merge filter**
+  允许用户自定义一些KV的过滤逻辑，在合并过程中对KV调用用户逻辑，由用户来过滤掉过期数据，剩余的数据才会被加入新生成的SSTables
+- **merge policy**
+  RocksDB提供的合并策略有：
+  - **leveling**：默认方式且分区，见[前文分析](#222-well-known-optimizations)
+  - **tiering**：与前文描述的tiering策略有所不同，RocksDB的tiering策略由两个参数控制，分别为the number of components to merge, `K`和the size ratio, `T`，合并时从最旧的组成部分到最新的组成部分依次检查，对每个组成部分 $C_i$ 会进一步检查比其年轻的`K-1`个组成部分的大小是否满足 $sum(C_{i-1}, C_{i-2}, ..., C_{i-K}) > T \times C_i$，若满足则合并这`K`个组成部分，否则继续检查下一个更年轻的组成部分；另外RocksDB有限支持tiering下的分区，类似水平分组的模式
+  - **FIFO**：在这种模式下所有组成部分从来不会被合并，而是基于生命周期的控制删除过旧的组成部分
+- **rate limiting**
+  由于合并操作会显著消耗CPU和磁盘资源，从而影响其他操作的性能，并且合并的时间点难以预测而往往依赖于写入数据的速率，因此RocksDB支持基于l**eaky bucket mechanism的流量限制**来控制合并发生时的磁盘写入速率，即flush和merge操作需要从一个**配额桶**中获取相应的额度才能继续执行，并且会周期性的给配额桶补充配额，从而用**配额补充速度来控制磁盘写入速度**
+- **read-modify-write**
+  非常多的应用程序会使用read-modify-write的访问模式（即读取后在数据基础上修改再写回，例如`i = i + 1`），RocksDB通过允许直接向内存写入**delta records**来高效支持这种操作，避免读取原始记录而是直接更新，后续在查询处理或是合并时就会将delta记录和原始记录合并处理
