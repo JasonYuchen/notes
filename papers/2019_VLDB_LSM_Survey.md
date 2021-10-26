@@ -484,3 +484,46 @@ RocksDB有非常多的新特性和优化如下：
   由于合并操作会显著消耗CPU和磁盘资源，从而影响其他操作的性能，并且合并的时间点难以预测而往往依赖于写入数据的速率，因此RocksDB支持基于l**eaky bucket mechanism的流量限制**来控制合并发生时的磁盘写入速率，即flush和merge操作需要从一个**配额桶**中获取相应的额度才能继续执行，并且会周期性的给配额桶补充配额，从而用**配额补充速度来控制磁盘写入速度**
 - **read-modify-write**
   非常多的应用程序会使用read-modify-write的访问模式（即读取后在数据基础上修改再写回，例如`i = i + 1`），RocksDB通过允许直接向内存写入**delta records**来高效支持这种操作，避免读取原始记录而是直接更新，后续在查询处理或是合并时就会将delta记录和原始记录合并处理
+
+### 4.3 HBase
+
+[HBase](http://hbase.apache.org)是构建在Hadoop生态上的分布式数据存储系统，模型参照了Google Bigtable的设计，**基于master-slave的架构，将所有数据分区（hash或range）到regions，每个region基于LSM树**，并且支持动态的region分割和合并来进行水平扩展与缩容
+
+HBase的LSM树合并策略**基于tiering merge policy**并有少量修改，衍生出：
+
+- **exploring merge policy**：默认策略，触发合并时，检查所有可合并的组成部分，并且选择**拥有最小写代价**的组成部分进行合并，这种策略比基本的tiering策略更稳健（尤其是当组成部分因为频繁的删除而拥有不常规的大小时）
+- **date-tiered merge policy**：主要针对时序数据设计，**基于组成部分的时间范围进行合并**，因此所有组成部分相当于是**时间范围分区**的，可以有效提高时序查询的性能
+
+HBase近期引入了新特性**stripping**允许将大的region进行分区来提升合并效率，分区方法基于key的空间从而子分区独立的持有一组组成部分，并且子分区就可以独立的进行合并，这种分区与前文描述的partitioned tiering merge policy不同
+
+HBase不支持原生的二级索引，但是可以通过手动**定义一个新表作为二级索引来使用**，并采用协处理器co-processors来维护，[见此](#374-distributed-indexing)
+
+### 4.4 Cassandra
+
+[Cassandra](https://cassandra.apache.org/_/index.html)是参照了Amazon Dynamo和Google BigTable构建的开源分布式数据存储系统，采用**去中心化的架构**来应对单点故障SPOF，**每个分区都基于LSM树**
+
+Cassandra支持与RocksDB和HBase类似的合并策略，包括：
+
+- (unpartitioned) tiering merge policy
+- partitioned leveling merge policy
+- date-tiered merge policy
+
+并且Cassandra还支持[本地二级索引](#374-distributed-indexing)来加速查询的处理，为了避免点查询延迟过高，本地二级索引的维护是懒惰进行的（类似[DELI](#372-index-maintenance)）：一次update操作后如果数据正好还在内存组成部分中，则直接用于更新二级索引，否则就会等到合并时才会更新二级索引
+
+### 4.5 AsterixDB
+
+[AsterixDB](http://asterixdb.apache.org)是开源的**大数据管理系统BDMS**，主要用于**高效支持半结构化数据**例如JSON
+
+AsterixDB采用了**shared-nothing parallel database**架构，每个数据集的数据都会基于主键散列分区到多个节点上，每个分区基于LSM树，管理一个primary index，一个primary key index，多个本地二级索引，采用**record-level事务模型来保证所有索引的一致性**
+
+显然primary index即LSM树核心采用primary key来管理所有数据，而primary key index仅仅只有primary key用来高效支持聚合类的查询，例如`COUNT(*)`
+
+二级索引采用secondary key和primary key的组合来作为索引的key，AsterixDB通过一个泛用的LSM-ification框架来支持基于LSM树的B+树、R树和倒排索引，更多索引细节`TODO`
+
+## 5 Future Research Directions
+
+- **Thorough Performance Evaluation**：大多数改进方案等设计仅基于未调优的默认配置LevelDB或RocksDB进行对比测试，而一个良好调优的RocksDB也许未必比所谓的改进方案要好
+- **Partitioned Tiering Structure**：分区式的tiering策略（水平分组和垂直分组）的特征和代价并没有被仔细考察过
+- **Hybrid Merge Policy**：大多数LSM的改进都采用leveling或tiering策略，对一些工作负载下所有层都采用相同的策略是次优的，不同改进下的混合策略并没有被充分考察
+- **Minimizing Performance Variance**：存储系统的稳定性非常重要，而LSM树由于合并的存在，其稳定性并不佳，经常可能出现写入暂停、延迟抖动和毛刺等现象，针对这一方面的研究非常少，文中只提到了[bLSM](#333-minimizing-write-stalls)
+- **Towards Database Storage Engines**：大多数现有的LSM树提升仅考虑了LSM树本身作为一个简单的key-value存储的应用，而现在随着LSM树越来越多的被应用到了复杂数据库系统当中，针对LSM树的查询处理、数据处理技术、索引尚显欠缺，例如可以考虑辅助数据结构来高效支持查询处理（auxiliary structures）、对LSM树针对性优化的查询优化器（LSM-aware）、充分利用LSM树本身的维护过程来执行查询处理（co-planning）
