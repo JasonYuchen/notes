@@ -149,3 +149,30 @@ Ceph的存储后端有过多年演变：
 ![ceph3](images/ceph3.png)
 
 ### 3.2 Challenge 2: Fast Metadata Operations
+
+本地文件系统中**元数据操作的低效**是所有分布式文件系统的主要问题之一，在Ceph的FileStore中列出目录所有目录项的操作`readdir`是最主要的问题（大目录下延迟高、返回的结果无序）
+
+RADOS中的对象通过`hash(name)`的方式映射到一组PG上，并且在枚举时会依照散列的顺序排序，FileStore采用了通常的方法来解决枚举目录项较慢的问题：**采用有较大扇出系数fan-out的目录层次结构，参考B树**，而对象就分布在多个目录中，读取了选中的目录内容后再进行目录项排序，当某个目录下的目录项数量增长较多（正常时只有数百个）时就会分裂为多个子目录
+
+目录的分裂操作非常耗时（尤其当Ceph OSDs几乎同时开始分裂目录时会显著影响性能），主要由于以下两点：
+
+1. 分裂时实际上会涉及到数百万`inode`修改并且使`dentry`的缓存失效，导致需要向磁盘发出大量的小I/O请求
+2. FileStore所基于的XFS将子目录subdirectories放置在不同的分配组allocation groups中来确保未来的目录项能够与子目录放置在一起即位置上更为接近，而当对象数量增加时目录内容扩增并占用更多空间，使得分裂操作发生时就需要更长的寻址时间
+
+![ceph4](images/ceph4.png)
+
+### 3.3 Challenge 3: Support For New Storage Hardware
+
+新的硬件设备，例如基于SMR技术的磁盘，可以采用两种驱动方式运行：drive-managed SMR驱动拥有兼容性但性能不稳定，而host-managed SMR驱动不具有兼容性但性能更为稳定和出色
+**host-managed SMR**驱动将磁盘分为256MiB的regions进行管理，一个region必须顺序写入，这种接口非常适合log-structured, copy-on-write的设计方案，但与传统的成熟本地文件系统的in-place overwrite设计完全违背
+数据中心采用的SSDs也有类似的变革，例如OpenChannel SSDs移除了FTL，从而可以直接操作裸闪存块，并相应的有一个全新的NVMe标准**Zoned Namespaces, ZNS SSDs**
+
+host-managed SMR驱动和ZNS SSDs都能显著提升性能但都无法兼容传统的接口，因此成熟的本地文件系统需要做出大量的修改才能支持这些新的硬件设备，这也会拖累基于本地文件系统的分布式文件系统
+
+### 3.4 Other Challenges
+
+非常多云服务厂商依赖分布式存储系统例如Ceph来提供存储服务，而如果分布式存储系统无法完全控制整个I/O栈，就难以满足**存储的延迟目标Service-Level Objectives, SLOs**
+
+其中一个原因就在于基于本地文件系统的存储后端无法控制**OS页缓存**继而无法预测延迟，通常OS页缓存采用了回写策略，即脏页会在空闲系统下周期性写入磁盘并同步数据，但在忙碌系统下则会有**复杂的回写触发机制，导致延迟非常不可控**
+
+## 4 BlueStore: A Clean-Slate Approach
