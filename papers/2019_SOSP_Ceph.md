@@ -222,8 +222,28 @@ BlueStore采用写时复制Copy-On-Write策略
 
 ### 5.1 Space-Efficient Checksums
 
+硬件设备并不可靠，因此对于支持PB级别存储的分布式存储系统例如Ceph需要频繁校验元数据和数据的一致性确保数据都被准确完整的存储在磁盘上，因此引入了**校验和checksum**
+
+BlueStore对每一次写入都会计算校验和，并且每一次读取都会通过校验和来验证，默认采用`crc32c`算法，由于能够完全控制I/O栈，BlueStore可以**基于I/O模式来选择校验和数据块的大小，从而避免为了存储校验和本身就占用了太多空间资源**，例如如果写入操作来自于兼容S3的RGW服务，则对象就是只读的read-only，可以采用较大的128KiB数据块计算校验和，如果对象会被压缩后存储，则校验和可以在压缩后再进行计算，显著降低了校验和的数据量
+
 ### 5.2 Overwrite of Erasure-Coded Data
+
+Ceph早在FileStore中就支持了纠删码，即**erasure-coded pools**来进行容错，但是仅在append/deletion中支持，overwrite的纠删码计算非常缓慢以至于引起系统的不稳定，因此对于需要支持overwrite的RBD和CephFS就只能使用**replicated pools**进行容错
+
+Ceph基于BlueStore通过**2PC协议**来支持overwrite的纠删码支持，所有存储了EC对象的OSDs首先复制一份需要overwrite的chunk数据（原始chunk保存用于宕机时恢复状态），随后每个OSDs都完成了数据更新后，原始chunk就会被丢弃（即2PC完成commit）
+
+在基于XFS的FileStore上，复制一份需要overwrite的chunk数据非常昂贵，因为XFS不支持高效的Copy-On-Write机制而需要物理复制数据，而**BlueStore则避免了物理复制数据**
 
 ### 5.3 Transparent Compression
 
+通常存储PB级别数据的分布式数据都必须采用压缩格式，原始数据的数据量尤其结合了多副本容错会带来高昂的存储空间成本，BlueStore在存储数据时会直接进行压缩，透明化压缩的过程
+
+对于部分chunk更新的情况（类似纠删码的overwrite支持）BlueStore将chunk数据更新并压缩后存储到新的位置，而元数据也会相应更新指向新的chunk数据，当更新次数过多导致对象**碎片化严重时就会进行对象compaction**，重新读出所有数据并一次性存储并压缩完成对象压实compact
+
+实践中BlueStore额外引入了启发式的算法来基于访问模式对不太可能经历多次overwrite的对象进行compaction
+
 ### 5.4 Exploring New Interfaces
+
+BlueStore不再受限于本地文件系统的接口限制，可以充分挖掘最新硬件的特性，例如原生支持SMR HDDs、ZNS SSDs或是NVMe设备，Ceph也正在探索下一代存储后端（基于Seastar的[SeaStore](https://docs.ceph.com/en/latest/dev/seastore/#seastore)？）
+
+## 6 Evaluation
