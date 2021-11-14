@@ -176,3 +176,33 @@ host-managed SMR驱动和ZNS SSDs都能显著提升性能但都无法兼容传�
 其中一个原因就在于基于本地文件系统的存储后端无法控制**OS页缓存**继而无法预测延迟，通常OS页缓存采用了回写策略，即脏页会在空闲系统下周期性写入磁盘并同步数据，但在忙碌系统下则会有**复杂的回写触发机制，导致延迟非常不可控**
 
 ## 4 BlueStore: A Clean-Slate Approach
+
+BlueStore是全新设计的存储后端，用来解决采用本地文件系统面临的问题，其主要目标包括：
+
+1. Fast metadata operations
+2. No consistency overhead for object writes
+3. Copy-on-write clone operation
+4. No journaling double-writes
+5. Optimized I/O patterns for HDD and SSD
+
+BlueStore的目标并不是通用的文件存储系统（即**不支持POSIX I/O标准**），而是轻量化小型的特定目标的用户态存储后端，并且充分利用了高性能的第三方开源组件以及对I/O栈的完全控制，从而可以提供额外的特性
+
+![ceph5](images/ceph5.png)
+
+### 4.1 BlueFS and RocksDB
+
+BlueStore通过将**metadata存储在RocksDB**来实现高效元数据操作，同时通过将数据直接写入裸磁盘（一次缓存刷写raw data）以及让RocksDB重用WAL文件作为环形缓冲（一次缓存刷写metadata）来减少数据一致性的开销（NewStore中一次数据写入需要[四次缓存刷写](#313-using-a-key-value-store-as-the-wal)）
+
+**RocksDB本身运行在专门设计的最小化文件系统BlueFS上**，BlueFS实现了RocksDB所需要的文件系统接口，相当于是RocksDB的`Env`接口的用户态实现，BlueFS的基本架构如下图：
+
+![ceph6](images/ceph6.png)
+
+BlueStore在RocksDB中管理多个namespaces，每一个namespace存储一种元数据类型，例如对象信息object information存储在`O` namespace中，块分配信息block allocation metadata存储在`B` namespace中，集合元信息collection metadata存储在`C` namespace中
+
+为了平衡OSDs的数据，通常对对象集合需要进行重平衡，原先是通过[对目录重命名](#32-challenge-2-fast-metadata-operations)来实现，代价高且低效
+
+采用RocksDB后每个集合collection（映射到一个PG并且代表了一个pool shard的namespace）的名字包含了pool标识符和该组对象共有的前缀，例如`C12.e4-6`代表该集合位于pool 12并且对象散列值前缀是`e4 = 11100100`的前`6`位`111001`，`O12.e532`（`e532 = 111001 0100110010`）就是该集合中的一个对象，而`O12.e832`（`e832 = 111010 0000110010`）就不属于该集合
+
+BlueStore采用这种命名方式就可以通过简单**修改前缀匹配的位数来直接进行对象重新平衡**而不需要修改每个对象的命名，性能远高于FileStore需要重命名目录实现目录分割
+
+### 4.2 Data Path and Space Allocation
