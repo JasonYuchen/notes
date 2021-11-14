@@ -206,3 +206,24 @@ BlueStore在RocksDB中管理多个namespaces，每一个namespace存储一种元
 BlueStore采用这种命名方式就可以通过简单**修改前缀匹配的位数来直接进行对象重新平衡**而不需要修改每个对象的命名，性能远高于FileStore需要重命名目录实现目录分割
 
 ### 4.2 Data Path and Space Allocation
+
+BlueStore采用写时复制Copy-On-Write策略
+
+对**大小超过最小分配尺寸**minimum allocation size（HDD-64Kib, SSD-16KiB）的写入请求，数据首先写入新分配的extent，持久化后相应的元数据再写入RocksDB，这种方式允许BlueStore实现**高效的clone操作**：当clone时只需要增加新数据依赖的extent的引用计数，新数据直接写入到新的extent，同时避免了journal的double-writes
+
+对**大小小于最小分配尺寸**的写入请求，数据本身和相应的元数据都首先直接写入到RocksDB，随后当事务提交时数据再被异步写入到磁盘上（**延迟写入defered write**），这种策略可以将多次小数据写入合并成一次批量写入磁盘提高吞吐量降低延迟，并且可以根据底层设备差异SSD/HDD进一步优化写入方式
+
+- **空间分配 Space Allocation**
+  BlueStore采用FreeList manager和Allocator来实现空间分配，前者负责代表当前在使用的磁盘的空闲部分，并且也会被保存在RocksDB中持久化，后者负责为新数据分配空间并在内存中持有一份free list的副本
+- **缓存 Cache**
+  BlueStore是在用户态实现的存储后端，并且通过direct I/O直接与磁盘交互，因此无法使用操作系统的页缓存，从而需要自身实现一个**直写式write-through**（直写式即数据写入在缓存和存储中同步生效，回写式即数据写入仅在缓存生效并且缓存被替换时才写入存储）缓存，缓存采用了scan resistant 2Q算法并且于Ceph OSDs一样分区来提升并发性能
+
+## 5 Features Enabled by BlueStore
+
+### 5.1 Space-Efficient Checksums
+
+### 5.2 Overwrite of Erasure-Coded Data
+
+### 5.3 Transparent Compression
+
+### 5.4 Exploring New Interfaces
