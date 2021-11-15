@@ -247,3 +247,39 @@ Ceph基于BlueStore通过**2PC协议**来支持overwrite的纠删码支持，所
 BlueStore不再受限于本地文件系统的接口限制，可以充分挖掘最新硬件的特性，例如原生支持SMR HDDs、ZNS SSDs或是NVMe设备，Ceph也正在探索下一代存储后端（基于Seastar的[SeaStore](https://docs.ceph.com/en/latest/dev/seastore/#seastore)？）
 
 ## 6 Evaluation
+
+所有测试都在16节点的Ceph集群中执行，集群间通过40GbE交换机连接，每个节点配置如下：
+
+- CPU: 16-core Intel E5 Xeon @ 2GHz
+- RAM: 64GiB
+- SSD: 400GB Intel P3600 NVMe SSD
+- HDD: 4TB 7200RPM Seagate HDD
+- NET: Mellanox 40GbE NIC
+
+### 6.1 Bare RADOS Benchmarks
+
+![ceph7](images/ceph7.png)
+
+![ceph8](images/ceph8.png)
+
+![ceph9](images/ceph9.png)
+
+### 6.2 RADOS Block Device Benchmarks
+
+RADOS Block Device, RBD是基于RADOS的虚拟化块设备，写入RBD的数据都会被分割为4 MiB的RADOS对象并并行写入多个OSDs
+
+测试时创建1TB的虚拟块设备，基于XFS格式化后采用`fio`来测试I/O性能：
+
+![ceph10](images/ceph10.png)
+
+可以看出由于FileStore随时可能触发的写回writeback，导致性能波动非常大
+
+### 6.3 Overwriting Erasure-Coded Data
+
+k代表原始数据副本数，也可以代表恢复数据所需要的副本数；m代表校验数据副本数，也可以代表容错允许出错的副本数；即k+m副本可以容纳m个副本出错
+
+- **Rep**: replicated pools
+- **EC 4-2**: erasure-coded pool with k=4, m=2
+- **EC 5-1**: erasure-coded pool with k=5, m=1
+
+![ceph11](images/ceph11.png)
