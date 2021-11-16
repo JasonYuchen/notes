@@ -283,3 +283,37 @@ k代表原始数据副本数，也可以代表恢复数据所需要的副本数�
 - **EC 5-1**: erasure-coded pool with k=5, m=1
 
 ![ceph11](images/ceph11.png)
+
+## 7 Challenges of Building Efficient Storage Backends on Raw Storage
+
+### 7.1 Cache Sizing and Writeback
+
+操作系统会根据内存情况动态增减页缓存的空间，并且采用写回的策略处理脏页，而基于本地文件系统的存储后端也自然可以享受到操作系统缓存的优点
+
+用户态实现并直接操作裸磁盘的存储后端就必须实现类似的缓存策略，而BlueStore通过配置文件固定了缓存的大小，不允许动态修改缓存空间
+
+**用户空间动态自适应的缓存系统**至今依然是一个开放问题，PostgreSQL、RocksDB等数据库系统也同样面临这个问题
+
+### 7.2 Key-value Store Efficiency
+
+将所有元数据操作都移入键值存储系统例如RocksDB显著提升了操作性能，但是同样面临了诸多问题：
+
+1. RocksDB的**compaction**和超高的写放大**wirte amplification**成为了在NVMe SSDs上制约OSDs性能的主要瓶颈
+2. RocksDB本身作为**黑箱**使用，内部有着大量Ceph也许并不需要的机制在消耗性能
+3. RocksDB本身的**线程模型**限制了任意sharding的能力
+
+这些问题促使着Ceph继续寻找其他更好的存储后端解决方案
+
+### 7.3 CPU and Memory Efficiency
+
+现代处理器为了优化性能，都会进行**数据类型和数据结构的对齐及padding**，而对于复杂结构体可能会出现显著的内存浪费
+
+常规应用程序的数据结构往往生命周期较短，而Ceph完全控制内存、绕过操作系统缓存、长时间运行使得这种内存浪费非常致命，因此Ceph团队耗费了大量精力在手动设计、打包数据结构，例如delta and variable-integer encoding
+
+另一方面观测到随着存储设备的发展，**NVMe SSDs下CPU越来越成为了性能的瓶颈**，设备的读写IOPS和带宽往往不会被充分利用，可以参考[KVell的结论](2019_SOSP_KVell.md)，因此Ceph也希望下一代存储后端能够降低CPU的开销，例如采用[Seastar框架以及shared-nothing设计思路](https://github.com/JasonYuchen/notes/blob/master/seastar/Introduction.md)
+
+## 8 SeaStore
+
+从此处开始不再是原论文中的内容，而是对Ceph下一代存储后端SeaStore的额外补充
+
+`TODO: 了解SeaStore和Seastar`
