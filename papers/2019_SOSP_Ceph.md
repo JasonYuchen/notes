@@ -176,3 +176,144 @@ host-managed SMR驱动和ZNS SSDs都能显著提升性能但都无法兼容传�
 其中一个原因就在于基于本地文件系统的存储后端无法控制**OS页缓存**继而无法预测延迟，通常OS页缓存采用了回写策略，即脏页会在空闲系统下周期性写入磁盘并同步数据，但在忙碌系统下则会有**复杂的回写触发机制，导致延迟非常不可控**
 
 ## 4 BlueStore: A Clean-Slate Approach
+
+BlueStore是全新设计的存储后端，用来解决采用本地文件系统面临的问题，其主要目标包括：
+
+1. Fast metadata operations
+2. No consistency overhead for object writes
+3. Copy-on-write clone operation
+4. No journaling double-writes
+5. Optimized I/O patterns for HDD and SSD
+
+BlueStore的目标并不是通用的文件存储系统（即**不支持POSIX I/O标准**），而是轻量化小型的特定目标的用户态存储后端，并且充分利用了高性能的第三方开源组件以及对I/O栈的完全控制，从而可以提供额外的特性
+
+![ceph5](images/ceph5.png)
+
+### 4.1 BlueFS and RocksDB
+
+BlueStore通过将**metadata存储在RocksDB**来实现高效元数据操作，同时通过将数据直接写入裸磁盘（一次缓存刷写raw data）以及让RocksDB重用WAL文件作为环形缓冲（一次缓存刷写metadata）来减少数据一致性的开销（NewStore中一次数据写入需要[四次缓存刷写](#313-using-a-key-value-store-as-the-wal)）
+
+**RocksDB本身运行在专门设计的最小化文件系统BlueFS上**，BlueFS实现了RocksDB所需要的文件系统接口，相当于是RocksDB的`Env`接口的用户态实现，BlueFS的基本架构如下图：
+
+![ceph6](images/ceph6.png)
+
+BlueStore在RocksDB中管理多个namespaces，每一个namespace存储一种元数据类型，例如对象信息object information存储在`O` namespace中，块分配信息block allocation metadata存储在`B` namespace中，集合元信息collection metadata存储在`C` namespace中
+
+为了平衡OSDs的数据，通常对对象集合需要进行重平衡，原先是通过[对目录重命名](#32-challenge-2-fast-metadata-operations)来实现，代价高且低效
+
+采用RocksDB后每个集合collection（映射到一个PG并且代表了一个pool shard的namespace）的名字包含了pool标识符和该组对象共有的前缀，例如`C12.e4-6`代表该集合位于pool 12并且对象散列值前缀是`e4 = 11100100`的前`6`位`111001`，`O12.e532`（`e532 = 111001 0100110010`）就是该集合中的一个对象，而`O12.e832`（`e832 = 111010 0000110010`）就不属于该集合
+
+BlueStore采用这种命名方式就可以通过简单**修改前缀匹配的位数来直接进行对象重新平衡**而不需要修改每个对象的命名，性能远高于FileStore需要重命名目录实现目录分割
+
+### 4.2 Data Path and Space Allocation
+
+BlueStore采用写时复制Copy-On-Write策略
+
+对**大小超过最小分配尺寸**minimum allocation size（HDD-64Kib, SSD-16KiB）的写入请求，数据首先写入新分配的extent，持久化后相应的元数据再写入RocksDB，这种方式允许BlueStore实现**高效的clone操作**：当clone时只需要增加新数据依赖的extent的引用计数，新数据直接写入到新的extent，同时避免了journal的double-writes
+
+对**大小小于最小分配尺寸**的写入请求，数据本身和相应的元数据都首先直接写入到RocksDB，随后当事务提交时数据再被异步写入到磁盘上（**延迟写入defered write**），这种策略可以将多次小数据写入合并成一次批量写入磁盘提高吞吐量降低延迟，并且可以根据底层设备差异SSD/HDD进一步优化写入方式
+
+- **空间分配 Space Allocation**
+  BlueStore采用FreeList manager和Allocator来实现空间分配，前者负责代表当前在使用的磁盘的空闲部分，并且也会被保存在RocksDB中持久化，后者负责为新数据分配空间并在内存中持有一份free list的副本
+- **缓存 Cache**
+  BlueStore是在用户态实现的存储后端，并且通过direct I/O直接与磁盘交互，因此无法使用操作系统的页缓存，从而需要自身实现一个**直写式write-through**（直写式即数据写入在缓存和存储中同步生效，回写式即数据写入仅在缓存生效并且缓存被替换时才写入存储）缓存，缓存采用了scan resistant 2Q算法并且于Ceph OSDs一样分区来提升并发性能
+
+## 5 Features Enabled by BlueStore
+
+### 5.1 Space-Efficient Checksums
+
+硬件设备并不可靠，因此对于支持PB级别存储的分布式存储系统例如Ceph需要频繁校验元数据和数据的一致性确保数据都被准确完整的存储在磁盘上，因此引入了**校验和checksum**
+
+BlueStore对每一次写入都会计算校验和，并且每一次读取都会通过校验和来验证，默认采用`crc32c`算法，由于能够完全控制I/O栈，BlueStore可以**基于I/O模式来选择校验和数据块的大小，从而避免为了存储校验和本身就占用了太多空间资源**，例如如果写入操作来自于兼容S3的RGW服务，则对象就是只读的read-only，可以采用较大的128KiB数据块计算校验和，如果对象会被压缩后存储，则校验和可以在压缩后再进行计算，显著降低了校验和的数据量
+
+### 5.2 Overwrite of Erasure-Coded Data
+
+Ceph早在FileStore中就支持了纠删码，即**erasure-coded pools**来进行容错，但是仅在append/deletion中支持，overwrite的纠删码计算非常缓慢以至于引起系统的不稳定，因此对于需要支持overwrite的RBD和CephFS就只能使用**replicated pools**进行容错
+
+Ceph基于BlueStore通过**2PC协议**来支持overwrite的纠删码支持，所有存储了EC对象的OSDs首先复制一份需要overwrite的chunk数据（原始chunk保存用于宕机时恢复状态），随后每个OSDs都完成了数据更新后，原始chunk就会被丢弃（即2PC完成commit）
+
+在基于XFS的FileStore上，复制一份需要overwrite的chunk数据非常昂贵，因为XFS不支持高效的Copy-On-Write机制而需要物理复制数据，而**BlueStore则避免了物理复制数据**
+
+### 5.3 Transparent Compression
+
+通常存储PB级别数据的分布式数据都必须采用压缩格式，原始数据的数据量尤其结合了多副本容错会带来高昂的存储空间成本，BlueStore在存储数据时会直接进行压缩，透明化压缩的过程
+
+对于部分chunk更新的情况（类似纠删码的overwrite支持）BlueStore将chunk数据更新并压缩后存储到新的位置，而元数据也会相应更新指向新的chunk数据，当更新次数过多导致对象**碎片化严重时就会进行对象compaction**，重新读出所有数据并一次性存储并压缩完成对象压实compact
+
+实践中BlueStore额外引入了启发式的算法来基于访问模式对不太可能经历多次overwrite的对象进行compaction
+
+### 5.4 Exploring New Interfaces
+
+BlueStore不再受限于本地文件系统的接口限制，可以充分挖掘最新硬件的特性，例如原生支持SMR HDDs、ZNS SSDs或是NVMe设备，Ceph也正在探索下一代存储后端（基于Seastar的[SeaStore](https://docs.ceph.com/en/latest/dev/seastore/#seastore)？）
+
+## 6 Evaluation
+
+所有测试都在16节点的Ceph集群中执行，集群间通过40GbE交换机连接，每个节点配置如下：
+
+- CPU: 16-core Intel E5 Xeon @ 2GHz
+- RAM: 64GiB
+- SSD: 400GB Intel P3600 NVMe SSD
+- HDD: 4TB 7200RPM Seagate HDD
+- NET: Mellanox 40GbE NIC
+
+### 6.1 Bare RADOS Benchmarks
+
+![ceph7](images/ceph7.png)
+
+![ceph8](images/ceph8.png)
+
+![ceph9](images/ceph9.png)
+
+### 6.2 RADOS Block Device Benchmarks
+
+RADOS Block Device, RBD是基于RADOS的虚拟化块设备，写入RBD的数据都会被分割为4 MiB的RADOS对象并并行写入多个OSDs
+
+测试时创建1TB的虚拟块设备，基于XFS格式化后采用`fio`来测试I/O性能：
+
+![ceph10](images/ceph10.png)
+
+可以看出由于FileStore随时可能触发的写回writeback，导致性能波动非常大
+
+### 6.3 Overwriting Erasure-Coded Data
+
+k代表原始数据副本数，也可以代表恢复数据所需要的副本数；m代表校验数据副本数，也可以代表容错允许出错的副本数；即k+m副本可以容纳m个副本出错
+
+- **Rep**: replicated pools
+- **EC 4-2**: erasure-coded pool with k=4, m=2
+- **EC 5-1**: erasure-coded pool with k=5, m=1
+
+![ceph11](images/ceph11.png)
+
+## 7 Challenges of Building Efficient Storage Backends on Raw Storage
+
+### 7.1 Cache Sizing and Writeback
+
+操作系统会根据内存情况动态增减页缓存的空间，并且采用写回的策略处理脏页，而基于本地文件系统的存储后端也自然可以享受到操作系统缓存的优点
+
+用户态实现并直接操作裸磁盘的存储后端就必须实现类似的缓存策略，而BlueStore通过配置文件固定了缓存的大小，不允许动态修改缓存空间
+
+**用户空间动态自适应的缓存系统**至今依然是一个开放问题，PostgreSQL、RocksDB等数据库系统也同样面临这个问题
+
+### 7.2 Key-value Store Efficiency
+
+将所有元数据操作都移入键值存储系统例如RocksDB显著提升了操作性能，但是同样面临了诸多问题：
+
+1. RocksDB的**compaction**和超高的写放大**wirte amplification**成为了在NVMe SSDs上制约OSDs性能的主要瓶颈
+2. RocksDB本身作为**黑箱**使用，内部有着大量Ceph也许并不需要的机制在消耗性能
+3. RocksDB本身的**线程模型**限制了任意sharding的能力
+
+这些问题促使着Ceph继续寻找其他更好的存储后端解决方案
+
+### 7.3 CPU and Memory Efficiency
+
+现代处理器为了优化性能，都会进行**数据类型和数据结构的对齐及padding**，而对于复杂结构体可能会出现显著的内存浪费
+
+常规应用程序的数据结构往往生命周期较短，而Ceph完全控制内存、绕过操作系统缓存、长时间运行使得这种内存浪费非常致命，因此Ceph团队耗费了大量精力在手动设计、打包数据结构，例如delta and variable-integer encoding
+
+另一方面观测到随着存储设备的发展，**NVMe SSDs下CPU越来越成为了性能的瓶颈**，设备的读写IOPS和带宽往往不会被充分利用，可以参考[KVell的结论](2019_SOSP_KVell.md)，因此Ceph也希望下一代存储后端能够降低CPU的开销，例如采用[Seastar框架以及shared-nothing设计思路](https://github.com/JasonYuchen/notes/blob/master/seastar/Introduction.md)
+
+## 8 SeaStore
+
+从此处开始不再是原论文中的内容，而是对Ceph下一代存储后端SeaStore的额外补充
+
+`TODO: 了解SeaStore和Seastar`
