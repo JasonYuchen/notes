@@ -244,39 +244,53 @@ fut.wait();
                ::testing::internal::GetTypeId<test_fixture>())
 ```
 
-由于Seastar还需要显式构建一个reactor引擎才能执行提交的测试任务，因此我们将构建引擎的部分放在基类中并要求所有测试都继承自此基类：
+由于Seastar还**需要显式构建一个reactor引擎才能执行提交的测试任务**，因此我们将构建引擎的部分放在继承自gtest `Environment`类中，gtest会负责在运行所有测试前首先运行该环境类：
 
-- `SetUpTestSuite()`中我们启动Seastar，并接管信号处理
-- `TearDownTestSuite()`中我们向Seastar发送信号来停止执行，并等待Seastar完全退出
+- `SetUp()`中我们启动Seastar，并接管信号处理，通过`std::future`来协调主线程等待reactor引擎完全启动后才会退出进入的测试
+- `TearDown()`中我们向Seastar发送信号来停止执行，并等待Seastar完全退出，注意也通过`std::future`协调主线程等待reactor引擎的每个线程退出
+- 额外添加的`static void submit(std::function<seastar::future<>()> func)`用于方便的在默认shard上执行协程逻辑，可以使用在其他test suite的`SetUp/TearDown`中
 
 ```C++
-class my_test_base : public ::testing::Test {
+class base : public ::testing::Environment {
  public:
-  inline static const int argc = 3;
-  inline static const char *argv[] = {"my_test_base", "-c2", "-m1G"};
+  base(int argc, char** argv) : _argc(argc), _argv(argv) {}
 
-  static void SetUpTestSuite() {
+  void SetUp() override {
     app_template::config app_cfg;
     app_cfg.auto_handle_sigint_sigterm = false;
     _app = std::make_unique<app_template>(std::move(app_cfg));
     std::promise<void> pr;
     auto fut = pr.get_future();
-    _engine_thread = std::thread([pr = std::move(pr)]() mutable {
+    _engine_thread = std::thread([this, pr = std::move(pr)]() mutable {
       return _app->run(
-        argc, const_cast<char **>(argv),
-        // We cannot use `pr = std::move(pr)` here as it will forbid compilation
-        // see https://taylorconor.com/blog/noncopyable-lambdas/
-        [&pr]() mutable -> seastar::future<> {
-          util::stop_signal stop_signal;
-          pr.set_value();
-          co_return co_await stop_signal.wait();
-        });
+          _argc, _argv,
+          // We cannot use `pr = std::move(pr)` here as it will forbid compilation
+          // see https://taylorconor.com/blog/noncopyable-lambdas/
+          [&pr]() mutable -> seastar::future<> {
+            l.info("reactor engine starting...");
+            rafter::util::stop_signal stop_signal;
+            pr.set_value();
+            auto signum = co_await stop_signal.wait();
+            l.info("reactor engine exiting..., caught signal {}:{}",
+                  signum, ::strsignal(signum));
+            co_return;
+          });
     });
     fut.wait();
   }
 
-  static void TearDownTestSuite() {
-    l.info("shutting down reactor engine with SIGTERM...");
+  void TearDown() override {
+    vector<std::future<void>> futs;
+    for (auto shard = 0; shard < smp::count; ++shard) {
+      futs.emplace_back(
+          alien::submit_to(
+              *alien::internal::default_instance,
+              shard,
+              [] { return make_ready_future<>(); }));
+    }
+    for (auto&& fut : futs) {
+      fut.wait();
+    }
     auto ret = ::pthread_kill(_engine_thread.native_handle(), SIGTERM);
     if (ret) {
       l.error("send SIGTERM failed: {}", ret);
@@ -285,14 +299,22 @@ class my_test_base : public ::testing::Test {
     _engine_thread.join();
   }
 
+  static void submit(std::function<seastar::future<>()> func) {
+    seastar::alien::submit_to(
+      *seastar::alien::internal::default_instance, 0, std::move(func)).wait();
+  }
+
  protected:
-  inline static std::thread _engine_thread;
-  inline static std::unique_ptr<seastar::app_template> _app;
-  inline static seastar::logger l = seastar::logger("my_test");
+  int _argc;
+  char** _argv;
+  std::thread _engine_thread;
+  std::unique_ptr<seastar::app_template> _app;
 };
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
+  // 注册初始化Seastar的环境类test::base到gtest中
+  ::testing::AddGlobalTestEnvironment(new test::base(argc, argv));
   return RUN_ALL_TESTS();
 }
 ```
@@ -308,4 +330,31 @@ MY_TEST_F(component, basic) {
 }
 ```
 
-需要注意的是由于`ASSERT_*`系列函数在失败时就会通过`return`返回，这与协程中的`co_return`违背，可以自定义一系列`ASSERT_*`或是尽可能避免采用`ASSERT_*`
+## 注意点与局限
+
+1. 由于gtest中的`ASSERT_*`系列函数在失败时就会通过`return`返回，这与协程中的`co_return`违背，可以自定义一系列`ASSERT_*`或是尽可能避免采用`ASSERT_*`
+2. 当实现一个test suite时会添加一些成员变量，这些成员变量的初始化可以通过`SetUp`中使用`submit`由Seastar来完成，但是需要注意**由Seastar线程创建的数据应该由相应的Seastar线程来销毁**，例如：
+
+    ```C++
+    class segment_test : public ::testing::Test {
+     protected:
+      void SetUp() override {
+        // let the Seastar initialize the object,
+        // this call blocks until _segment is set
+        submit([this]() -> future<> {
+          _segment = co_await segment::open(test_file);
+        });
+      }
+
+      void TearDown() override {
+        submit([this]() -> future<> {
+          co_await _segment->close();
+          // data created by Seastar must also be released inside the Seastar
+          // (in the same thread/shard)
+          _segment.reset(nullptr);
+          co_await remove_file(test_file);
+        });
+      }
+      seastar::lw_shared_ptr<segment> _segment;
+    };
+    ```
