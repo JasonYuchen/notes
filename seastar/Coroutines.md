@@ -171,6 +171,64 @@ seastar::future<int> parallel_sum(int key1, int key2) {
 
 **注意`all`会等待所有子任务执行结束，即使某些抛出了异常**，也会等到所有结束后才将异常向上层抛出，当多个异常一起发生时会选择其中任意一个异常
 
+`TODO: all()实现`
+
+### `any()`
+
+`TODO: any()用法与实现`
+
+### `maybe_yield()`
+
+显然每一个`co_await`点都是reactor引擎调度的点，上述也提到了即使一个`future`已经就绪，但如果此前已经连续运行了过多就绪任务（默认阈值为256）那么为了避免其他poller下的任务饥饿，reactor引擎会通过`need_preempt()`返回`true`来抢占任务
+
+如果某个计算密集的任务中并不包含`co_await`点，就可能导致reactor引擎无法通过抢占的方式来避免饥饿，此时就**需要调用者主动调用`co_await maybe_yield();`来检查是否需要让渡出执行权**，需要注意的是这个过程中也发生了coroutine的各种判断，因此避免在一个计算开销并不高的多次循环中调用，而是在计算开销较高且时间长的循环中使用，例如：
+
+```C++
+seastar::future<int> long_loop(int n) {
+    float acc = 0;
+    for (int i = 0; i < n; ++i) {  // large n
+        acc += std::sin(float(i)); // heavy computation
+        co_await seastar::coroutine::maybe_yield();
+    }
+    co_return acc;
+}
+```
+
+从上述分析可知，`maybe_yield()`的实现非常简单，**只需要在`await_ready()`内部判断是否需要被抢占即可**，其他逻辑与常规`task`类似，如下：
+
+```C++
+struct maybe_yield_awaiter final : task {
+    using coroutine_handle_t = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<void>;
+
+    coroutine_handle_t when_ready;
+    task* main_coroutine_task;
+
+    bool await_ready() const {
+        // 主动判断是否需要被抢占
+        return !need_preempt();
+    }
+
+    template <typename T>
+    void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<T> h) {
+        when_ready = h;
+        main_coroutine_task = &h.promise(); // for waiting_task()
+        // 显然这个future总是就绪的，并不需要像上文中的task中一样判断
+        // 因此直接调度返回给reactor引擎等待被resume
+        schedule(this);
+    }
+
+    void await_resume() {}
+
+    virtual void run_and_dispose() noexcept override {
+        when_ready.resume();
+        // No need to delete, this is allocated on the coroutine frame
+    }
+    virtual task* waiting_task() noexcept override {
+        return main_coroutine_task;
+    }
+};
+```
+
 ### `.then()`
 
 seastar中的`future`可以通过`.then(func)`的方式要求在该`future`就绪时将其结果传递给`func`从而实现串联执行的语法，注意**更推荐采用协程的写法而非`.then()`，协程有更多优越性**，例如：
