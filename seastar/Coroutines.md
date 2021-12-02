@@ -85,9 +85,11 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
     }
 
     // 3. engine().add_task(t)
-    // TODO: reactor引擎的调度执行暂时略过
+    // reactor引擎的调度执行见此分析
+    // https://github.com/JasonYuchen/notes/blob/master/seastar/Reactor.md#class-reactor
+    ```
 
-3. 返回reactor引擎的执行流后，这个future对应的task最终在`reactor::run_tasks(task_queue &tq)`被实际执行：`engine().run() -> run_some_tasks() -> run_tasks`
+3. 返回[reactor引擎的执行流](https://github.com/JasonYuchen/notes/blob/master/seastar/Reactor.md#class-reactor)后，这个future对应的task最终在`reactor::run_tasks(task_queue &tq)`被实际执行：`engine().run() -> run_some_tasks() -> run_tasks`
 
     ```C++
     void reactor::run_tasks(task_queue& tq) {
