@@ -175,7 +175,7 @@ seastar::future<int> parallel_sum(int key1, int key2) {
 
 `TODO: all()实现`
 
-### `any()`
+### `when_any()`
 
 `TODO: any()用法与实现`
 
@@ -229,6 +229,42 @@ struct maybe_yield_awaiter final : task {
         return main_coroutine_task;
     }
 };
+```
+
+### `with_timeout`
+
+对任务超时的限制实际上**并不会在超时时取消任务直接返回，而是在任务完成时检查任务的完成时间是否超时**，如果超时则将相应的`future`设置为超时异常，其应该等同于`co_await task`结果后判断时间差，若超时就返回`timeout exception`，否则就返回`co_await task`的结果
+
+```c++
+// Wait for either a future, or a timeout, whichever comes first
+// Note that timing out doesn't cancel any tasks associated with the original future.
+template<typename ExceptionFactory = default_timeout_exception_factory, typename Clock, typename Duration, typename... T>
+future<T...> with_timeout(std::chrono::time_point<Clock, Duration> timeout, future<T...> f) {
+    if (f.available()) {
+        return f;
+    }
+    auto pr = std::make_unique<promise<T...>>();
+    auto result = pr->get_future();
+    // 加入一个计时器，当计时结束（超时发生）就给返回的结果设置为超时异常
+    timer<Clock> timer([&pr = *pr] {
+        pr.set_exception(std::make_exception_ptr(ExceptionFactory::timeout()));
+    });
+    timer.arm(timeout);
+    // Future is returned indirectly.
+    // 将任务f后链上一个判断是否发生超时的任务
+    (void)f.then_wrapped([pr = std::move(pr), timer = std::move(timer)] (auto&& f) mutable {
+        if (timer.cancel()) {
+            // 若尚未超时，即timer处于armd状态且未激发，则此时cancel成功返回true，将任务原先的结果推送给
+            // with_timeout返回的future
+            f.forward_to(std::move(*pr));
+        } else {
+            // cancel失败说明超时已经发生，则此时忽略原任务的任何结果，此时with_timeout返回的future就处于
+            // 被timer的callback设置了超时异常（timeout exception）的状态，caller随后就会发现超时
+            f.ignore_ready_future();
+        }
+    });
+    return result;
+}
 ```
 
 ### `.then()`
