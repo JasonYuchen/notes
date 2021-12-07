@@ -171,9 +171,129 @@ seastar::future<int> parallel_sum(int key1, int key2) {
 }
 ```
 
-**注意`all`会等待所有子任务执行结束，即使某些抛出了异常**，也会等到所有结束后才将异常向上层抛出，当多个异常一起发生时会选择其中任意一个异常
+**注意`all`会等待所有子任务执行结束，即使某些抛出了异常**，也会等到所有结束后才将异常向上层抛出，当多个异常一起发生时会选择其中任意一个异常，其实现原理也比较直接，核心点在于：
 
-`TODO: all()实现`
+- `await_ready`的判断就是是否所有`future`都已经就绪，若非则第0个开始按顺序`process`
+- 处理过程中每一个未就绪的任务都会通过内部类`intermediate_task`进行等待，一旦**任务完成通过回调继续处理下一个任务**
+- 按`all`的构造顺序返回所有结果，并跳过其中返回值是`void`的任务，但是对于存在异常的情况，"随机"返回一个异常（实际实现是最后一个异常）
+
+```c++
+/// Wait for serveral futures to complete in a coroutine.
+///
+/// `all` can be used to launch several computations concurrently
+/// and wait for all of them to complete. Computations are provided
+/// as callable objects (typically lambda coroutines) that are invoked
+/// by `all`. Waiting is performend by `co_await` and returns a tuple
+/// of values, one for each non-void future.
+///
+/// If one or more of the function objects throws an exception, or if one
+/// or more of the futures resolves to an exception, then the exception is
+/// thrown. All of the futures are waited for, even in the case of exceptions.
+/// If more than one exception is present, an arbitrary one is thrown.
+template <typename... Futures>
+class [[nodiscard("must co_await an all() object")]] all {
+    using tuple = std::tuple<Futures...>;
+    using value_tuple = typename internal::value_tuple_for_non_void_futures<Futures...>;
+    struct awaiter;
+    template <size_t idx>
+    struct intermediate_task final : continuation_base_from_future_t<std::tuple_element_t<idx, tuple>> {
+        awaiter& container;
+        explicit intermediate_task(awaiter& container) : container(container) {}
+        virtual void run_and_dispose() noexcept {
+            using value_type = typename std::tuple_element_t<idx, tuple>::value_type;
+            if (__builtin_expect(this->_state.failed(), false)) {
+                // 若第idx个任务失败，将相应的future设置异常，但并不会终止所有任务的执行
+                using futurator = futurize<std::tuple_element_t<idx, tuple>>;
+                std::get<idx>(container.state._futures) = futurator::make_exception_future(std::move(this->_state).get_exception());
+            } else {
+                // 若执行成功第idx个任务，则将相应的第idx个future设置为执行结果
+                if constexpr (std::same_as<std::tuple_element_t<idx, tuple>, future<>>) {
+                    std::get<idx>(container.state._futures) = make_ready_future<>();
+                } else {
+                    std::get<idx>(container.state._futures) = make_ready_future<value_type>(std::move(this->_state).get0());
+                }
+            }
+            // 注意：intermediate_task是通过placement new创建在all类内部的，因此需要手动调用其析构函数
+            this->~intermediate_task();
+            // 无论第idx个任务是否成功，都会继续执行下一个任务直到all的所有futures就绪
+            container.template process<idx+1>();
+        }
+    };
+    template <typename IndexSequence>
+    struct generate_aligned_union;
+    template <size_t... idx>
+    struct generate_aligned_union<std::integer_sequence<size_t, idx...>> {
+        // 对每一个任务的future相应的intermedaite_task都对齐的类型continuation_storage_t
+        // 采用这种对齐的目的就是提供一个对齐后尚未初始化的内存块，从而所有内含的类型都可以直接在其上进行构造，见cppreference std::aligned_union
+        // 随后就用该栈变量_continuation_storage作为临时存储（利用了placement new）来存放所有intermediate_task
+        using type = std::aligned_union_t<1, intermediate_task<idx>...>;
+    };
+    // std::tuple_size_v<tuple> 返回tuple的元素数量
+    // std::make_index_sequence<N> 返回 <0, 1, 2, ..., N-1>
+    using continuation_storage_t = typename generate_aligned_union<std::make_index_sequence<std::tuple_size_v<tuple>>>::type;
+    using coroutine_handle_t = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<void>;
+private:
+    tuple _futures;
+private:
+    struct awaiter {
+        all& state;
+        continuation_storage_t _continuation_storage;
+        coroutine_handle_t when_ready;
+        awaiter(all& state) : state(state) {}
+        bool await_ready() const {
+            return std::apply([] (const Futures&... futures) {
+                return (... && futures.available());
+            }, state._futures);
+        }
+        void await_suspend(coroutine_handle_t h) {
+            when_ready = h;
+            process<0>();
+        }
+        value_tuple await_resume() {
+            // 在resume之后就会调用await_resume来构造co_await的返回值，对所有就绪的future
+            // 进行判断是否存在异常，多个异常时实际实现中会返回all顺序的最后一个异常
+            std::apply([] (Futures&... futures) {
+                std::exception_ptr e;
+                // Call get_exception for every failed future, to avoid exceptional future
+                // ignored warnings. 
+                (void)(..., (futures.failed() ? (e = futures.get_exception(), 0) : 0));
+                if (e) {
+                    std::rethrow_exception(std::move(e));
+                }
+            }, state._futures);
+            // This immediately-invoked lambda is used to materialize the indexes
+            // of non-void futures in the tuple.
+            return [&] <size_t... Idx> (std::integer_sequence<size_t, Idx...>) {
+                return value_tuple(std::get<Idx>(state._futures).get0()...);
+            } (internal::index_sequence_for_non_void_futures<Futures...>());
+        }
+        template <unsigned idx>
+        void process() {
+            // 当不断处理完成末尾任务时就会直接调用resume恢复协程的执行
+            if constexpr (idx == sizeof...(Futures)) {
+                when_ready.resume();
+            } else {
+                if (!std::get<idx>(state._futures).available()) {
+                    auto task = new (&_continuation_storage) intermediate_task<idx>(*this);
+                    // set_callback时会调用schedule()进行该intermediate_task的执行，从而执行到
+                    // 上面代码中的run_and_dispose()
+                    seastar::internal::set_callback(std::get<idx>(state._futures), task);
+                } else {
+                    // 若当前task就绪则直接判断下一个task
+                    process<idx + 1>();
+                }
+            }
+        }
+    };
+public:
+    template <typename... Func>
+    requires (... && std::invocable<Func>) && (... && future_type<std::invoke_result_t<Func>>)
+    explicit all(Func&&... funcs)
+            : _futures(futurize_invoke(funcs)...) {
+    }
+    awaiter operator co_await() { return awaiter{*this}; }
+};
+```
 
 ### `when_any()`
 
