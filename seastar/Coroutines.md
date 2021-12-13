@@ -85,9 +85,11 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
     }
 
     // 3. engine().add_task(t)
-    // TODO: reactor引擎的调度执行暂时略过
+    // reactor引擎的调度执行见此分析
+    // https://github.com/JasonYuchen/notes/blob/master/seastar/Reactor.md#class-reactor
+    ```
 
-3. 返回reactor引擎的执行流后，这个future对应的task最终在`reactor::run_tasks(task_queue &tq)`被实际执行：`engine().run() -> run_some_tasks() -> run_tasks`
+3. 返回[reactor引擎的执行流](https://github.com/JasonYuchen/notes/blob/master/seastar/Reactor.md#class-reactor)后，这个future对应的task最终在`reactor::run_tasks(task_queue &tq)`被实际执行：`engine().run() -> run_some_tasks() -> run_tasks`
 
     ```C++
     void reactor::run_tasks(task_queue& tq) {
@@ -169,7 +171,221 @@ seastar::future<int> parallel_sum(int key1, int key2) {
 }
 ```
 
-**注意`all`会等待所有子任务执行结束，即使某些抛出了异常**，也会等到所有结束后才将异常向上层抛出，当多个异常一起发生时会选择其中任意一个异常
+**注意`all`会等待所有子任务执行结束，即使某些抛出了异常**，也会等到所有结束后才将异常向上层抛出，当多个异常一起发生时会选择其中任意一个异常，其实现原理也比较直接，核心点在于：
+
+- `await_ready`的判断就是是否所有`future`都已经就绪，若非则第0个开始按顺序`process`
+- 处理过程中每一个未就绪的任务都会通过内部类`intermediate_task`进行等待，一旦**任务完成通过回调继续处理下一个任务**
+- 按`all`的构造顺序返回所有结果，并跳过其中返回值是`void`的任务，但是对于存在异常的情况，"随机"返回一个异常（实际实现是最后一个异常）
+
+```c++
+/// Wait for serveral futures to complete in a coroutine.
+///
+/// `all` can be used to launch several computations concurrently
+/// and wait for all of them to complete. Computations are provided
+/// as callable objects (typically lambda coroutines) that are invoked
+/// by `all`. Waiting is performend by `co_await` and returns a tuple
+/// of values, one for each non-void future.
+///
+/// If one or more of the function objects throws an exception, or if one
+/// or more of the futures resolves to an exception, then the exception is
+/// thrown. All of the futures are waited for, even in the case of exceptions.
+/// If more than one exception is present, an arbitrary one is thrown.
+template <typename... Futures>
+class [[nodiscard("must co_await an all() object")]] all {
+    using tuple = std::tuple<Futures...>;
+    using value_tuple = typename internal::value_tuple_for_non_void_futures<Futures...>;
+    struct awaiter;
+    template <size_t idx>
+    struct intermediate_task final : continuation_base_from_future_t<std::tuple_element_t<idx, tuple>> {
+        awaiter& container;
+        explicit intermediate_task(awaiter& container) : container(container) {}
+        virtual void run_and_dispose() noexcept {
+            using value_type = typename std::tuple_element_t<idx, tuple>::value_type;
+            if (__builtin_expect(this->_state.failed(), false)) {
+                // 若第idx个任务失败，将相应的future设置异常，但并不会终止所有任务的执行
+                using futurator = futurize<std::tuple_element_t<idx, tuple>>;
+                std::get<idx>(container.state._futures) = futurator::make_exception_future(std::move(this->_state).get_exception());
+            } else {
+                // 若执行成功第idx个任务，则将相应的第idx个future设置为执行结果
+                if constexpr (std::same_as<std::tuple_element_t<idx, tuple>, future<>>) {
+                    std::get<idx>(container.state._futures) = make_ready_future<>();
+                } else {
+                    std::get<idx>(container.state._futures) = make_ready_future<value_type>(std::move(this->_state).get0());
+                }
+            }
+            // 注意：intermediate_task是通过placement new创建在all类内部的，因此需要手动调用其析构函数
+            this->~intermediate_task();
+            // 无论第idx个任务是否成功，都会继续执行下一个任务直到all的所有futures就绪
+            container.template process<idx+1>();
+        }
+    };
+    template <typename IndexSequence>
+    struct generate_aligned_union;
+    template <size_t... idx>
+    struct generate_aligned_union<std::integer_sequence<size_t, idx...>> {
+        // 对每一个任务的future相应的intermedaite_task都对齐的类型continuation_storage_t
+        // 采用这种对齐的目的就是提供一个对齐后尚未初始化的内存块，从而所有内含的类型都可以直接在其上进行构造，见cppreference std::aligned_union
+        // 随后就用该栈变量_continuation_storage作为临时存储（利用了placement new）来存放所有intermediate_task
+        using type = std::aligned_union_t<1, intermediate_task<idx>...>;
+    };
+    // std::tuple_size_v<tuple> 返回tuple的元素数量
+    // std::make_index_sequence<N> 返回 <0, 1, 2, ..., N-1>
+    using continuation_storage_t = typename generate_aligned_union<std::make_index_sequence<std::tuple_size_v<tuple>>>::type;
+    using coroutine_handle_t = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<void>;
+private:
+    tuple _futures;
+private:
+    struct awaiter {
+        all& state;
+        continuation_storage_t _continuation_storage;
+        coroutine_handle_t when_ready;
+        awaiter(all& state) : state(state) {}
+        bool await_ready() const {
+            return std::apply([] (const Futures&... futures) {
+                return (... && futures.available());
+            }, state._futures);
+        }
+        void await_suspend(coroutine_handle_t h) {
+            when_ready = h;
+            process<0>();
+        }
+        value_tuple await_resume() {
+            // 在resume之后就会调用await_resume来构造co_await的返回值，对所有就绪的future
+            // 进行判断是否存在异常，多个异常时实际实现中会返回all顺序的最后一个异常
+            std::apply([] (Futures&... futures) {
+                std::exception_ptr e;
+                // Call get_exception for every failed future, to avoid exceptional future
+                // ignored warnings. 
+                (void)(..., (futures.failed() ? (e = futures.get_exception(), 0) : 0));
+                if (e) {
+                    std::rethrow_exception(std::move(e));
+                }
+            }, state._futures);
+            // This immediately-invoked lambda is used to materialize the indexes
+            // of non-void futures in the tuple.
+            return [&] <size_t... Idx> (std::integer_sequence<size_t, Idx...>) {
+                return value_tuple(std::get<Idx>(state._futures).get0()...);
+            } (internal::index_sequence_for_non_void_futures<Futures...>());
+        }
+        template <unsigned idx>
+        void process() {
+            // 当不断处理完成末尾任务时就会直接调用resume恢复协程的执行
+            if constexpr (idx == sizeof...(Futures)) {
+                when_ready.resume();
+            } else {
+                if (!std::get<idx>(state._futures).available()) {
+                    auto task = new (&_continuation_storage) intermediate_task<idx>(*this);
+                    // set_callback时会调用schedule()进行该intermediate_task的执行，从而执行到
+                    // 上面代码中的run_and_dispose()
+                    seastar::internal::set_callback(std::get<idx>(state._futures), task);
+                } else {
+                    // 若当前task就绪则直接判断下一个task
+                    process<idx + 1>();
+                }
+            }
+        }
+    };
+public:
+    template <typename... Func>
+    requires (... && std::invocable<Func>) && (... && future_type<std::invoke_result_t<Func>>)
+    explicit all(Func&&... funcs)
+            : _futures(futurize_invoke(funcs)...) {
+    }
+    awaiter operator co_await() { return awaiter{*this}; }
+};
+```
+
+### `when_any()`
+
+`TODO: any()用法与实现`
+
+### `maybe_yield()`
+
+显然每一个`co_await`点都是reactor引擎调度的点，上述也提到了即使一个`future`已经就绪，但如果此前已经连续运行了过多就绪任务（默认阈值为256）那么为了避免其他poller下的任务饥饿，reactor引擎会通过`need_preempt()`返回`true`来抢占任务
+
+如果某个计算密集的任务中并不包含`co_await`点，就可能导致reactor引擎无法通过抢占的方式来避免饥饿，此时就**需要调用者主动调用`co_await maybe_yield();`来检查是否需要让渡出执行权**，需要注意的是这个过程中也发生了coroutine的各种判断，因此避免在一个计算开销并不高的多次循环中调用，而是在计算开销较高且时间长的循环中使用，例如：
+
+```C++
+seastar::future<int> long_loop(int n) {
+    float acc = 0;
+    for (int i = 0; i < n; ++i) {  // large n
+        acc += std::sin(float(i)); // heavy computation
+        co_await seastar::coroutine::maybe_yield();
+    }
+    co_return acc;
+}
+```
+
+从上述分析可知，`maybe_yield()`的实现非常简单，**只需要在`await_ready()`内部判断是否需要被抢占即可**，其他逻辑与常规`task`类似，如下：
+
+```C++
+struct maybe_yield_awaiter final : task {
+    using coroutine_handle_t = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<void>;
+
+    coroutine_handle_t when_ready;
+    task* main_coroutine_task;
+
+    bool await_ready() const {
+        // 主动判断是否需要被抢占
+        return !need_preempt();
+    }
+
+    template <typename T>
+    void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<T> h) {
+        when_ready = h;
+        main_coroutine_task = &h.promise(); // for waiting_task()
+        // 显然这个future总是就绪的，并不需要像上文中的task中一样判断
+        // 因此直接调度返回给reactor引擎等待被resume
+        schedule(this);
+    }
+
+    void await_resume() {}
+
+    virtual void run_and_dispose() noexcept override {
+        when_ready.resume();
+        // No need to delete, this is allocated on the coroutine frame
+    }
+    virtual task* waiting_task() noexcept override {
+        return main_coroutine_task;
+    }
+};
+```
+
+### `with_timeout`
+
+对任务超时的限制实际上**并不会在超时时取消任务直接返回，而是在任务完成时检查任务的完成时间是否超时**，如果超时则将相应的`future`设置为超时异常，其应该等同于`co_await task`结果后判断时间差，若超时就返回`timeout exception`，否则就返回`co_await task`的结果
+
+```c++
+// Wait for either a future, or a timeout, whichever comes first
+// Note that timing out doesn't cancel any tasks associated with the original future.
+template<typename ExceptionFactory = default_timeout_exception_factory, typename Clock, typename Duration, typename... T>
+future<T...> with_timeout(std::chrono::time_point<Clock, Duration> timeout, future<T...> f) {
+    if (f.available()) {
+        return f;
+    }
+    auto pr = std::make_unique<promise<T...>>();
+    auto result = pr->get_future();
+    // 加入一个计时器，当计时结束（超时发生）就给返回的结果设置为超时异常
+    timer<Clock> timer([&pr = *pr] {
+        pr.set_exception(std::make_exception_ptr(ExceptionFactory::timeout()));
+    });
+    timer.arm(timeout);
+    // Future is returned indirectly.
+    // 将任务f后链上一个判断是否发生超时的任务
+    (void)f.then_wrapped([pr = std::move(pr), timer = std::move(timer)] (auto&& f) mutable {
+        if (timer.cancel()) {
+            // 若尚未超时，即timer处于armd状态且未激发，则此时cancel成功返回true，将任务原先的结果推送给
+            // with_timeout返回的future
+            f.forward_to(std::move(*pr));
+        } else {
+            // cancel失败说明超时已经发生，则此时忽略原任务的任何结果，此时with_timeout返回的future就处于
+            // 被timer的callback设置了超时异常（timeout exception）的状态，caller随后就会发现超时
+            f.ignore_ready_future();
+        }
+    });
+    return result;
+}
+```
 
 ### `.then()`
 
