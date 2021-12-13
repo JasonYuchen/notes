@@ -23,5 +23,6 @@ Notes about various courses, projects, books, papers, topics, blogs, etc.
 |**raft**|thesis|*Concensus - Bridging Theory and Practice*, Diego Ongaro|
 |**seastar**|project|[an advanced C++ framework](http://seastar.io) for high-performance server applications on modern hardware|
 |**streamingsystems**|book|*Streaming Systems*, Akidau, Slava Chernyak, and Reuven Lax|
+|**talks**|misc|various multidisciplinary talks such as p99conf|
 |**tcpip1**|book|*TCP/IP Illustrated Volume 1*, W.Richard Stevens|
 |**tools**|N/A|some usefull tools for taking notes|
