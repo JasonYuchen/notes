@@ -1,8 +1,8 @@
 # New Ways to Find Latency in Linux Using Tracing
 
-## ftrace
-
 [original talk](https://www.p99conf.io/session/new-ways-to-find-latency-in-linux-using-tracing/)
+
+## ftrace
 
 ftrace从2008年开始成为Linux Kernel的official tracer，此前所采用PREEMPT_RT主要致力于找到延迟点而无法大规模在生产环境中使用，其额外的开销过大，并且每次开启和关闭tracer都需要重新配置编译安装内核
 
