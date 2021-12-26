@@ -40,4 +40,4 @@
 
 ## Dynamic Priority Adjustment
 
-`TODO`
+在运行时根据各模块资源的占用以及前端请求的压力动态调整每个模块的占比，即[动态调整优先级](https://github.com/JasonYuchen/notes/blob/master/seastar/Dynamic_Priority_Adjustment.md#backlog-controller)
