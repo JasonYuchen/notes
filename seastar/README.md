@@ -1,8 +1,10 @@
-# seastar
+# Seastar
 
 - Seastar in action
 - Seastar source code insights
 - Various interesting technical blogs from Scylla team
+
+## Introduction
 
 1. [Introduction](Introduction.md)
 
@@ -10,18 +12,36 @@
 
 1. [Build & test seastar](Setup.md)
 
-1. [Memory barrier in producer & consumer](Membarrier_Adventures.md)
+1. [Shared-nothing architecture](Shared_Nothing.md)
 
-1. [User space disk I/O scheduler](Disk_IO_Scheduler.md)
+1. [Technical blogs about scylladb/seastar](Blog.md)
+
+## Insight
+
+1. [Actor in seastar](Message_Passing.md)
 
 1. [How coroutine fits into future/promise](Coroutines.md)
 
-1. [Actor in seastar](Message_Passing.md)
+1. [Simple coroutine queue](Queue.md)
+
+1. [Dedicated file stream](FStream.md)
 
 1. [Reactor engine](Reactor.md)
 
 1. [Coordinated omission](Coordinated_Omission.md)
 
-1. [Technical blogs about scylladb/seastar](Blog.md)
+## Advanced topics
+
+1. [Memory barrier in producer & consumer](Membarrier_Adventures.md)
+
+1. [User space disk I/O scheduler](Disk_IO_Scheduler.md)
 
 1. [Memcache](Memcached.md)
+
+1. [How to benchmark a database system](BenchmarkDB.md)
+
+1. [How to bridge GTest and Seastar](Unittest.md)
+
+1. [How to change shards after rebooting? Example from Scylla](Reshard.md)
+
+1. [How to control your system with feedback? Dynamic priority adjustment](Dynamic_Priority_Adjustment.md)

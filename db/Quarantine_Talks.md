@@ -6,8 +6,8 @@
 
 - [Low level architecture (thread-per-core) in seastar](https://github.com/JasonYuchen/notes/blob/master/seastar/Shared_Nothing.md)
 - [Usrespace IO scheduler in seastar](https://github.com/JasonYuchen/notes/blob/master/seastar/Disk_IO_Scheduler.md)
-- **Feedback based dynamic shares (IO scheduler) tuning in Scylla** (TODO: interesting)
-  - Various **resource monitors** in Scylla to adjust the priority on the fly
+- **Feedback based dynamic shares (IO scheduler) tuning in Scylla**
+  - Various **resource monitors** in Scylla to [adjust the priority on the fly](https://github.com/JasonYuchen/notes/blob/master/seastar/Dynamic_Priority_Adjustment.md#backlog-controller)
 
   ![scylla_2](images/scylla_2.jpg)
 
