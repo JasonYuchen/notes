@@ -12,7 +12,7 @@ Sukumar Ghosh
 3. [Models for Communication](03.Models_for_Communication.md)
 4. Representing Distributed Algorithms: Syntax and Semantics
 5. Program Correctness
-6. Time in a Distributed System
+6. [Time in a Distributed System](06.Time.md)
 
 ## Section III. Important Paradigms
 
