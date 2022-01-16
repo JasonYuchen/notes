@@ -16,7 +16,7 @@ Sukumar Ghosh
 
 ## Section III. Important Paradigms
 
-7. Mutual Exclusion
+7. [Mutual Exclusion](07.Mutual_Exclusion.md)
 8. Distributed Snapshot
 9. Global State Collection
 10. Graph Algorithms
