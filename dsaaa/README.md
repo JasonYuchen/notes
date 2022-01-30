@@ -17,9 +17,9 @@ Sukumar Ghosh
 ## Section III. Important Paradigms
 
 7. [Mutual Exclusion](07.Mutual_Exclusion.md)
-8. Distributed Snapshot
-9. Global State Collection
-10. Graph Algorithms
+8. [Distributed Snapshot](08.Distributed_Snapshot.md)
+9. [Global State Collection](09.Global_State_Collection.md)
+10. [Graph Algorithms](10.Graph_Algorithms.md)
 11. Coordination Algorithms
 
 ## Section IV. Faults and Fault-Tolerant Systems
