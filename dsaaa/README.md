@@ -20,7 +20,7 @@ Sukumar Ghosh
 8. [Distributed Snapshot](08.Distributed_Snapshot.md)
 9. [Global State Collection](09.Global_State_Collection.md)
 10. [Graph Algorithms](10.Graph_Algorithms.md)
-11. Coordination Algorithms
+11. [Coordination Algorithms](11.Coordination_Algorithms.md)
 
 ## Section IV. Faults and Fault-Tolerant Systems
 
