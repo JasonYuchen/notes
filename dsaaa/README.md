@@ -24,7 +24,7 @@ Sukumar Ghosh
 
 ## Section IV. Faults and Fault-Tolerant Systems
 
-12. Fault-Tolerant Systems
+12. [Fault-Tolerant Systems](12.Fault-Tolerant_Systems.md)
 13. Distributed Consensus
 14. Distributed Transactions
 15. Group Communication
