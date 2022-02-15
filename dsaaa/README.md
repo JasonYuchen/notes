@@ -25,10 +25,10 @@ Sukumar Ghosh
 ## Section IV. Faults and Fault-Tolerant Systems
 
 12. [Fault-Tolerant Systems](12.Fault-Tolerant_Systems.md)
-13. Distributed Consensus
-14. Distributed Transactions
-15. Group Communication
-16. Replicated Data Management
+13. [Distributed Consensus](13.Distributed_Consensus.md)
+14. [Distributed Transactions](14.Distributed_Transactions.md)
+15. [Group Communication](15.Group_Communication.md)
+16. [Replicated Data Management](16.Replicated_Data_Management.md)
 17. Self-Stablizing Systems
 
 ## Section V. Real-World Issues
