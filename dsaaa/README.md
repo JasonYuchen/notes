@@ -29,7 +29,7 @@ Sukumar Ghosh
 14. [Distributed Transactions](14.Distributed_Transactions.md)
 15. [Group Communication](15.Group_Communication.md)
 16. [Replicated Data Management](16.Replicated_Data_Management.md)
-17. Self-Stablizing Systems
+17. [Self-Stablizing Systems](17.Self-Stabilizing_Systems.md)
 
 ## Section V. Real-World Issues
 
