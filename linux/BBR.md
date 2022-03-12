@@ -124,16 +124,73 @@ RTT_t = RTprop_t + \eta_t
 
 ## Single BBR Flow Startup Behavior
 
+相对于其他算法，BBR在处理连接打开、连接关闭、丢包恢复、稳定状态下的带宽探测等问题上非常简洁，具体逻辑参见[前文](#matching-the-packet-flow-to-the-delivery-path)，以10MBPS-40MS的连接为例，下图为启动的1秒内发生的状态变化，其中蓝色为接收方，绿色为BBR发送方，红色为CUBIC发送方
+
+![BBR4](images/BBR4.png)
+
+- **Startup**：起始阶段BBR采用二分搜索的方式（当传输速率`deliveryRate`增加时采用`pacing_gain = 2/ln2`）来**探测BtlBw**，需要`log2 BDP`个RTT可以找到最佳值，这个过程中由于**额外发送的过多数据会导致链路上至多有2BDP的数据形成队列堆积**，相当于在途的数据一共有3BDP而其中2BDP正在排队
+- **Drain**：起始过程中产生的额外2BDP数据堆积会在**找到BtlBw后立即进入排空阶段**进行处理，排空时就采用此前阶段增长的倒数值`pacing_gain = ln2/2`
+- **Probe BW**：在队列排空后即在途的数据包恢复到BDP的量时，就会转入探测阶段稳定发送数据并周期性探测BtlBw的变化
+- **Probe RTT**：当稳定运行一段时间后，假如RTprop持续一段时间没有得到更新，此时就会主动减少数据发送量进入app limited阶段来对RTprop进行采样，若得到更新则会**进一步采样直到获得较为稳定的RTprop估计值**
+
+从长时间来看，显然BBR和CUBIC算法都能在起始阶段迅速达到较优的发送速率，但是随后CUBIC延迟不断增大并出现超时等，而**BBR持续工作在最优状态，即带宽利用率最大化，延迟最小化，链路上几乎不会存在队列**
+
+![BBR5](images/BBR5.png)
+
 ## Multiple BBR Flow Sharing a Bottleneck
+
+对于给定带宽和延迟的网络下，多条BBR连接的情况如下图所示，最终会进入**均分带宽且都最低延迟**的情况
+
+- **Probe BW**：探测带宽阶段其他连接额外占用了带宽就会导致本连接逐步下降发送的数据量，相当于大流量的连接让渡流量份额给小流量的连接，该过程相对较快，因此所有连接较快收敛到均分带宽的状态
+- **Probe RTT**：当稳定运行一段时间后会尝试通过减少数据量（仅发送4个数据包）来探测更准确的RTprop，因此图中30、40秒时就会出现明显的小流量波谷
+
+由于不同连接无序的初始状态，此时链路上可能堆积了不同连接的队列，大流量的连接在进入延迟探测阶段会大量消耗队列上堆积的数据，从而该连接和其他连接都会获得更小的RTprop估计值，此时旧值过期并**接收新的最小延迟值从而继续探测延迟并进一步消耗队列**，最终所有连接都加速收敛
+
+> This distributed coordination is the key to both fairness and stability.
+
+在整个过程中多条**BBR连接的收敛目标就是队列堆积为零**，因此加速收敛的同时也改善了网络环境；而基于**丢包算法的连接收敛目标是均分队列缓冲区**，在此过程中会导致频繁的队列堆积和溢出丢包，显著加大延迟和丢包劣化网络环境
+
+![BBR6](images/BBR6.png)
 
 ## Google B4 WAN Deployment Experience
 
+- BBR的吞吐量稳定在CUBIC的2-25倍
+
+![BBR7](images/BBR7.png)
+
+- 基于丢包的算法需要丢包率极低才能充分利用带宽，而BBR对意外丢包的容忍度极高
+- 基于丢包的算法中丢包是算法的属性
+- BBR算法中**丢包仅仅是一个可配置参数**，因为丢包会影响到计算传输速率，进而低估BtlBw，从而随着丢包率升高到非常可观的值才会显著影响BBR的吞吐量
+
+![BBR8](images/BBR8.png)
+
 ## Youtube Edge Deployment Experience
+
+- 采用CUBIC的连接，原先**延迟越高，切换为BBR后延迟下降效果越好**
+
+![BBR9](images/BBR9.png)
+
+- 随着缓存的增大，基于丢包的算法会导致缓存的数据显著增多并增加延迟直到连接无法正常建立
+- **BBR不依赖缓存大小**，在任意缓存大小下都能表现出优异的延迟特性
+
+![BBR10](images/BBR10.png)
 
 ## Mobile Cellular Adaptive Bandwidth
 
+移动蜂窝网络往往基于用户所占用的队列来估计用户所需的带宽，因此采用零队列目标的BBR算法会导致用户的带宽极小，通过**增加带宽探测阶段的`pacing_gain`来引入较小的队列**可以有效缓解这种问题
+
+通常情况下采用`1.25 * BtlBw`的配置可以在任意网络环境下表现不差于CUBIC算法
+
 ## Delayed and Stretched ACKs
+
+蜂窝网络、Wi-Fi网络等网络环境下会采用延迟、聚合ACK的方式来优化网络环境，从而对于BBR算法来说可能会导致低估BtlBw，可以通过**增加带宽探测阶段的`cwnd_gain = 2`来允许在估计的传输速率下额外传输数据，来补偿延迟、聚合ACK导致的传输停顿**
 
 ## Token-bucket Policers
 
+世界上主流的ISP通常通过**令牌桶策略token-bucket policers**来管理带宽，BBR初始阶段桶是满的因此BBR可以迅速获得一个较大的BtlBw，而随着桶变空，BBR发送的数据包就会被丢弃，虽然最终BBR又回学习到新的BtlBw，但是在**带宽探测阶段中超发的数据都会被丢弃（理想上这些数据应该通过排队引起延迟增加反馈给发送方而不是被丢弃）导致了带宽的浪费**
+
+BBR引入了**policer model**来应对这种情况，并持续研究更好的做法`TODO`
+
 ## Competition With Loss-based Congestion Control
+
+当BBR的连接与基于丢包的连接共处相同网络环境下时，由于BBR的目标是收敛到均分带宽而对丢包并不敏感，因此**即使基于丢包的连接将队列全部耗尽，BBR连接依然能够通过带宽探测阶段逐渐获得符合份额的带宽，并且通过延迟探测阶段获取到一个较高的延迟估计值RTprop**
