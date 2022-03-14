@@ -78,6 +78,8 @@ for i = 1,...,N:
 
 常规的背包问题通常初始化都是`dp[0][0,...,W] = 0`，而在恰好装满的要求下，由于**非满的情况是不可行的因此应该被初始化为`-inf`，而只有`dp[0,...,N][0] = 0`即重量为零的价值为0**
 
+[279. Perfect Squares](https://leetcode.com/problems/perfect-squares/)
+
 [322. Coin Change](https://leetcode.com/problems/coin-change/)
 
 [416. Partition Equal Subset Sum](https://leetcode.com/problems/partition-equal-subset-sum/)
