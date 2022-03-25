@@ -8,11 +8,11 @@
 
 ------------------
 
-- Strict Serializable `TODO`
+- [Strict Serializable](Strict_Serializability.md)
 
 ------------------
 
-- Seriazable `TODO`
+- [Seriazable](Serializability.md)
 - Repeatable Read `TODO`
 - Snapshot Isolation `TODO`
 - Cursor Stability `TODO`
