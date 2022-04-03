@@ -28,3 +28,4 @@ Notes about various courses, projects, books, papers, topics, blogs, etc.
 |**talks**|misc|various multidisciplinary talks such as p99conf|
 |**tcpip1**|book|*TCP/IP Illustrated Volume 1*, W.Richard Stevens|
 |**tools**|N/A|some usefull tools for taking notes|
+|**trpl**|book|*The Rust Programming Language*, Steve Klabnik, Carol Nichols|
