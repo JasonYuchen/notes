@@ -13,8 +13,8 @@
 ------------------
 
 - [Seriazable](Serializability.md)
-- Repeatable Read `TODO`
-- Snapshot Isolation `TODO`
+- [Repeatable Read](Repeatable_Read.md)
+- [Snapshot Isolation](Snapshot_Isolation.md)
 - Cursor Stability `TODO`
 - Monotonic Atomic View `TODO`
 - Read Committed `TODO`
