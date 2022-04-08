@@ -5,7 +5,9 @@
 可重复读与可串行化非常接近，在可串行化的基础上**允许出现幻读phantom**的情况
 
 - **可重复读是一个事务模型 transactional model**
+- **可重复读也是一个多对象属性 multi-object property**
 - **可重复读无法完全可用 totally available**
+  `TODO: why cannot`
 
 可重复读对时间没有任何要求，同时对同一进程内的不同事务也没有要求（**单个事务内的读取必须可重复**）
 

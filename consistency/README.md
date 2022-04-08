@@ -2,6 +2,8 @@
 
 [original post](https://jepsen.io/consistency)
 
+[material: Highly Available Transactions: Virtues and Limitations](https://amplab.cs.berkeley.edu/wp-content/uploads/2013/10/hat-vldb2014.pdf)
+
 ![overview](images/0.png)
 
 [Short version for strong consistency models](Strong_consistency_models.md)
@@ -15,8 +17,8 @@
 - [Seriazable](Serializability.md)
 - [Repeatable Read](Repeatable_Read.md)
 - [Snapshot Isolation](Snapshot_Isolation.md)
-- Cursor Stability `TODO`
-- Monotonic Atomic View `TODO`
+- [Cursor Stability](Cursor_Stability.md)
+- [Monotonic Atomic View](Monotonic_Atomic_View.md)
 - Read Committed `TODO`
 - Read Uncommitted `TODO`
 

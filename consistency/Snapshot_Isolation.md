@@ -7,6 +7,7 @@
 - **快照隔离是一个事务模型 transactional model**
 - **严格串行化也是一个多对象属性 multi-object property**
 - **严格串行化无法完全可用 totally available**
+  `TODO: why cannot`
 
 与串行化要求所有事务的全序不同，**快照隔离仅要求部分有序partial order**，一个事务内的多个操作可以与其他事务的操作交织执行，快照隔离最显著的问题就是允许：
 
