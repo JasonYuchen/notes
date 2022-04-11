@@ -19,8 +19,8 @@
 - [Snapshot Isolation](Snapshot_Isolation.md)
 - [Cursor Stability](Cursor_Stability.md)
 - [Monotonic Atomic View](Monotonic_Atomic_View.md)
-- Read Committed `TODO`
-- Read Uncommitted `TODO`
+- [Read Committed](Read_Committed.md)
+- [Read Uncommitted](Read_Uncommitted.md)
 
 ------------------
 
