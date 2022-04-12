@@ -24,8 +24,8 @@
 
 ------------------
 
-- Linearizable `TODO`
-- Sequential `TODO`
+- [Linearizable](Linearizable.md)
+- [Sequential](Sequential.md)
 - Causal `TODO`
 - PRAM `TODO`
 - Writes Follow Reads `TODO`
