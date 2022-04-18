@@ -26,12 +26,12 @@
 
 - [Linearizable](Linearizable.md)
 - [Sequential](Sequential.md)
-- Causal `TODO`
-- PRAM `TODO`
-- Writes Follow Reads `TODO`
-- Monotonic Reads `TODO`
-- Monotonic Writes `TODO`
-- Read Your Writes `TODO`
+- [Causal](Causal.md)
+- [PRAM](PARM.md)
+- [Writes Follow Reads](Write_Follow_Reads.md)
+- [Monotonic Reads](Monotonic_Reads.md)
+- [Monotonic Writes](Monotonic_Writes.md)
+- [Read Your Writes](Read_Your_Writes.md)
 
 ------------------
 
