@@ -75,3 +75,53 @@
 更加详细的各种一致性模型可以参考[此笔记](https://github.com/JasonYuchen/notes/tree/master/consistency#consistency-models)，来源于jepsen；在[*Distributed Systems: An Algorithmic Approach*](https://github.com/JasonYuchen/notes/blob/master/dsaaa/16.Replicated_Data_Management.md#163-data-centric-consistency-models)中也有讨论常见的一致性模型
 
 ### Availability Patterns
+
+- **故障转移 Failover**
+  - Active-passive
+    主备容灾，基本模式就是主服务器通过发送心跳给备份服务器保活，当心跳超时后备份服务器就会成为主服务器继续提供服务
+  - Active-active
+    双活容灾，基本模式就是根据负载均衡服务器将请求均分到所有服务器上，每个服务器都承担一部分流量
+- **副本备份 Replication**
+  通常指数据库数据的备份容灾模式
+  - Master-slave
+    主库负责数据的读写请求，并将数据复制到从库（取决于同步/异步复制模式，可能存在一部分数据差异），而从库只负责数据的读请求（由于数据差异，存在读到非最新数据的可能）
+  - Master-master
+    多个节点互为备份，每个节点都可以接收读写请求，由数据库内部的协议来确保读写的一致性
+
+[transactions acorss datacenters](https://snarfed.org/transactions_across_datacenters_io.html)
+
+- **定期备份**，弱一致性，通常没有事务支持
+- **主从备份**，通常异步备份从而延迟较低，弱一致性/最终一致性，例如MySQL binlog
+- **双活备份**，处理冲突写入**需要串行化协议serialization protocol**，通常也是异步备份，弱一致性/最终一致性
+- **两阶段提交2PC**，分布式事务，原子提交协议，同步协议延迟高，吞吐量较低，[详细见此note](https://github.com/JasonYuchen/notes/blob/master/cmu15.445/23.Distributed_OLTP.md#%E4%B8%A4%E9%98%B6%E6%AE%B5%E6%8F%90%E4%BA%A4-two-phase-commit-2pc)
+- **PAXOS**，分布式共识，多数派读写，容忍少数派宕机，相较2PC轻量但延迟依然高，[详细见此note](https://github.com/JasonYuchen/notes/blob/master/papers/2001_Paxos_Made_Simple.md#2001-paxos-made-simple)
+
+|            |Backups|M/S     |MM      |2PC   |PAXOS |
+|:-:         |:-:    |:-:     |:-:     |:-:   |:-:   |
+|Consistency |Weak   |Eventual|Eventual|Strong|Strong|
+|Transactions|No     |Full    |Local   |Full  |Full  |
+|Latency     |Low    |Low     |Low     |High  |High  |
+|Throughput  |High   |High    |High    |Low   |Medium|
+|Data loss   |Lots   |Some    |Some    |None  |None  |
+|Failover    |Down   |R-only  |R/W     |R/W   |R/W   |
+
+## 5. Domain name system, DNS
+
+`TODO`
+
+## 6. Content delivery network, CDN
+
+内容分发网络通过一组分布的代理服务器，就近向用户提供内容（由站点的DNS服务器告知客户端需要连接的CND节点），避免所有内容都由主服务器提供，从而显著提升系统整体性能，CDN分成两种主要的模式（或是对不同内容采用混合模式）：
+
+- **Push CDNs**
+  由**主服务器完全负责所有CDN上的数据修改、生效和有效期**，因此通常主服务器需要将所有数据都完全存储到所有CDN节点（类似饿汉模式），从而**占用较多的存储空间**，但相应的客户端访问完全由CDN提供服务，**减少了主服务器的流量和压力**；对于流量较少且修改不频繁的内容而言，采用Push的效果较好
+- **Pull CDNs**
+  每当CDN收到用户请求且无**法找到所需的数据时才会去主服务器请求相应的内容**（类似懒汉模式），此时主服务器会设置**数据的有效期time-to-live, TTL**，这种模式下不需要存储所有数据到CDN上，**占用较少的存储空间**，但可能会有较频繁或周期性的CDN数据拉取请求（即使数据并未改变但过期也会触发冗余的拉取）导致**主服务器流量和压力较大**；对于流量较大（大多访问到近期的新数据）且修改频繁的内容而言，采用Pull的效果较好
+
+采用CDN也有一些显而易见的缺点：
+
+- 成本显著受流量的影响（不采用CDN可能会有其他成本）
+- 由于TTL的存在，定期更新会导致客户端可能读取到过期数据**stale read**
+- 对于存放在CDNs上的数据，主服务器需要将相应的地址指向CDNs
+
+## 7. Load balancer
