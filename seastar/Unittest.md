@@ -330,10 +330,54 @@ MY_TEST_F(component, basic) {
 }
 ```
 
+由于gtest中的`ASSERT_*`系列函数在失败时就会通过`return`返回，这与协程中的`co_return`违背，可以发现这些函数实际实现如下：
+
+```c++
+// gtest/gtest.h
+#define ASSERT_TRUE(condition) \
+  GTEST_TEST_BOOLEAN_(condition, #condition, false, true, \
+                      GTEST_FATAL_FAILURE_)
+
+// gtest/internal/gtest-internal.h
+#define GTEST_TEST_BOOLEAN_(expression, text, actual, expected, fail) \
+  GTEST_AMBIGUOUS_ELSE_BLOCKER_ \
+  if (const ::testing::AssertionResult gtest_ar_ = \
+      ::testing::AssertionResult(expression)) \
+    ; \
+  else \
+    fail(::testing::internal::GetBoolAssertionFailureMessage(\
+        gtest_ar_, text, #actual, #expected).c_str())
+```
+
+其中所有`ASSERT_*`系列函数失败时依赖了`fail`参数即`GTEST_FATAL_FAILURE_`宏，而该宏就是简单的打印消息并返回，将此处的`return`替换为`co_return`就可以实现在协程函数体内执行`ASSERT_*`：
+
+```c++
+// gtest/internal/gtest-internal.h
+#define GTEST_FATAL_FAILURE_(message) \
+  return GTEST_MESSAGE_(message, ::testing::TestPartResult::kFatalFailure)
+```
+
+为了避免直接修改gtest的源代码，依然选择在前文定义`MY_TEST_`的位置覆盖这个宏的定义，从而我们的测试函数体内就可以使用`ASSERT_*`：
+
+```C++
+#ifdef GTEST_FATAL_FAILURE_
+#undef GTEST_FATAL_FAILURE_
+#endif
+
+#define GTEST_FATAL_FAILURE_(message)                                          \
+  co_return GTEST_MESSAGE_(message, ::testing::TestPartResult::kFatalFailure)
+
+#ifdef GTEST_SKIP_
+#undef GTEST_SKIP_
+#endif
+
+#define GTEST_SKIP_(message)                                                   \
+  co_return GTEST_MESSAGE_(message, ::testing::TestPartResult::kSkip)
+```
+
 ## 注意点与局限
 
-1. 由于gtest中的`ASSERT_*`系列函数在失败时就会通过`return`返回，这与协程中的`co_return`违背，可以自定义一系列`ASSERT_*`或是尽可能避免采用`ASSERT_*`
-2. 当实现一个test suite时会添加一些成员变量，这些成员变量的初始化可以通过`SetUp`中使用`submit`由Seastar来完成，但是需要注意**由Seastar线程创建的数据应该由相应的Seastar线程来销毁**，例如：
+1. 当实现一个test suite时会添加一些成员变量，这些成员变量的初始化可以通过`SetUp`中使用`submit`由Seastar来完成，但是需要注意**由Seastar线程创建的数据应该由相应的Seastar线程来销毁**，例如：
 
     ```C++
     class segment_test : public ::testing::Test {
