@@ -230,4 +230,4 @@ How might decentralized applications work
 
 ## Project - rafter (inprogress)
 
-[rafter](https://github.com/jasonyuchen/rafter) is a multi-group consensus library written in C++ inspired by [dragonboat](https://github.com/lni/dragonboat), [seastar](https://github.com/scylladb/seastar), [etcd](https://github.com/etcd-io/etcd), [braft](https://github.com/baidu/braft)
+[rafter](https://github.com/jasonyuchen/seastar_playground) is a multi-group consensus library written in C++ inspired by [dragonboat](https://github.com/lni/dragonboat), [seastar](https://github.com/scylladb/seastar), [etcd](https://github.com/etcd-io/etcd), [braft](https://github.com/baidu/braft)
