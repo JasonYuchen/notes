@@ -17,6 +17,7 @@ Notes about various courses, projects, books, papers, topics, blogs, etc.
 |**dragonboat**|project|a high performance multi-group Raft consensus library in pure Go|
 |**ds**|book|*Data Structures & Algorithm Analysis in C++*, Mark Allen Weiss|
 |**dsaaa**|book|*Distributed Systems: An Algorithmic Approach*, Sukumar Ghosh|
+|**kafka**|book|*Kafka The Definitive Guide*, Gwen Shapira|
 |**linux**|blog|miscellaneous topics of linux (e.g. bpf, epoll, io_uring)|
 |**mit6.824**|course|[Distributed Systems Engineering](https://pdos.csail.mit.edu/6.824/schedule.html) is a course for MIT computer science students|
 |**os**|book|*Operating System Concept*, Abraham Silberschatz|
