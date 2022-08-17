@@ -360,4 +360,4 @@ bool fair_queue::grab_pending_capacity(fair_queue_ticket cap) noexcept {
 
 在[Part III](#part-iii-进一步降低延迟-better-latencies-under-any-circumstance)中提到的问题并没有被完全解决，默认了磁盘的读和写请求的性能接近，假定了1次128KiB的请求等同于2次64KiB请求，这些都与实际情况不完全相同
 
-[TODO](https://groups.google.com/g/seastar-dev/c/8WNR4GLskGY)
+[Implementing a New IO Scheduler Algorithm for Mixed Read/Write Workloads](https://github.com/JasonYuchen/notes/blob/master/seastar/New_Disk_IO_Scheduler_For_RW.md)
