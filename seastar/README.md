@@ -36,6 +36,8 @@
 
 1. [User space disk I/O scheduler](Disk_IO_Scheduler.md)
 
+1. [Advanced User space disk I/O scheduler](New_Disk_IO_Scheduler_For_RW.md)
+
 1. [Memcache](Memcached.md)
 
 1. [How to benchmark a database system](BenchmarkDB.md)
