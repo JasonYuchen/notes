@@ -64,7 +64,55 @@
 
 ## 5. Visualizing Metrics with Timeseries Graphs
 
+- Aggregation Across Space: e.g. it is hard to make sense of a host-level graph of web requests, but the same data is easily interpreted when the metrics are **aggregated by availability zone**.
+  
+  ![02](images/datadog02.png)
+
+- Line Graphs: e.g. cpu idle, median latency across all web servers, disk utilization
+
+  ![03](images/datadog03.png)
+
+- Stacked Area Graphs: e.g. load balance requests per availability zone, metrics that can be added sensibly
+
+  ![04](images/datadog04.png)
+
+- Bar Graphs: e.g. failed jobs
+
+  ![05](images/datadog05.png)
+
+- Heat Maps: to see trends
+  
+  ![06](images/datadog06.png)
+
 ## 6. Visualizing Metrics with Summay Graphs
+
+- Aggregation Across Time: e.g. max redis latency by host over the past 1 hour
+
+  ![07](images/datadog07.png)
+
+- Aggregation Across Space: e.g. max redis latency by service over the past 1 hour
+
+  ![08](images/datadog08.png)
+
+- Single-Value Summaries: e.g. current number of OK hosts, current web server requests per second
+  
+  ![09](images/datadog09.png)
+
+- Toplists
+
+  ![10](images/datadog10.png)
+
+- Change Graphs: compare a metric's current value against its value at a point in the past
+
+  ![11](images/datadog11.png)
+
+- Host Maps
+
+  ![12](images/datadog12.png)
+
+- Distributions
+
+  ![13](images/datadog13.png)
 
 ## 7. Putting It All Together: How to Monitor ELB
 
