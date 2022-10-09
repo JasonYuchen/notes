@@ -116,6 +116,34 @@
 
 ## 7. Putting It All Together: How to Monitor ELB
 
+- Key ELB Performance Metrics
+  - **RequestCount**: number of inbound requests accepted (Work: throughput)
+  - **SurgeQueueLength**: number of inbound requests waiting to be accepted (Resource: saturation)
+    This metric should remain as low as possible.
+  - **SpilloverCount**: number of inbound requests dropped due to surge queue full (Work: error due to saturation)
+    When requests dropped, user receives a 503, this metric should always be equal to zero in a healthy system.
+  - **HTTPCode_ELB_5XX** (Work: error)
+    e.g. 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout
+  - **HTTPCode_ELB_4XX** (Work: error)
+- Backend-Related Metrics
+  - **HealthyHostCount** (Resource: availability)
+  - **UnhealthyHostCount** (Resource: availability)
+  - **Latency** (Work: performance)
+  - **HTTPCode_Backend_2XX** (Work: success)
+  - **HTTPCode_Backend_3XX** (Work: success)
+  - **HTTPCode_Backend_4XX** (Work: error)
+  - **HTTPCode_Backend_5XX** (Work: error)
+  - **BackendConnectionErrors**: connection errors between ELB and backend servers (Resource: error)
+- Monitoring ELB with Datadog
+  
+  ![14](images/datadog14.png)
+
 ## 8. Putting It All Together: Monitoring Docker
 
 ## 9. Datadog Is Dynamic, Cloud-Scale Monitoring
+
+- Comprehensive monitoring
+- Flexible aggregation
+- Effortless scaling
+- Sophisticated alerting
+- Collaboration baked in
