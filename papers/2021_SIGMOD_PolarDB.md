@@ -122,7 +122,38 @@ PolarDB Serveless通过**缓存失效cache invalidation**策略来保证缓存�
 
 ### 3.2 B+Tree's Structural Consistency
 
+并发控制包含两个部分，第一部分就是**物理上的并发安全**，避免多个线程同时修改索引导致出现空悬链接等不一致情况，第二部分就是**逻辑上的并发安全**，保证多个并发事务的不同隔离级别
+
+在PolarDB Serverless中只有RW节点能够修改页，因此对于B+树不需要预防多个节点的冲突修改，关键在于RW节点对B+树进行结构修改时**Structure Modification Operations SMO**（例如B+树节点分裂）要确保RO节点不会看到不一致的节点，通过采用PLT上的**全局物理锁global physical latch**来确保这一点，同样有**共享锁S-PL**和**独占锁X-PL**两种模式，并发访问B+树的加锁流程基本与[单节点访问](https://github.com/JasonYuchen/notes/blob/master/cmu15.445/09.Index_Concurrency_Control.md#b%E6%A0%91-b-tree-latching)类似
+
+当RW节点需要插入、删除数据时，流程如下：
+
+1. 首先进行乐观操作，即只在本地进行加锁操作并尝试更新节点，假如不会引入B+树结构变化时，**即没有SMO时，就不需要PLT的协助**，此时只需要RW节点内的锁操作即可完成
+2. 当发现需要SMO时，重新从根节点开始并且对相应的路径上都逐个采用X-PL加锁（当然也需要同样加上本地的独占锁X），直到插入、删除数据结束，节点分裂、合并结束时才会释放所有X锁和X-PL锁
+
+当RO节点需要读取数据时，就会从根节点开始采用X-PL加锁，从而确保了RW节点和RO节点的安全
+
+另外由于PLT由中心节点完成服务，因此另外两种优化措施引入以提升锁的性能：
+
+- **stickness**，当SMO操作完成时，**PL并不会马上被释放，而是一直持有直到遇到RO节点的请求**为止，这样可以确保RW节点后续的操作可能继续持有锁而不需要频繁与PLT节点交互反复加解锁
+- **RDMA CAS**
+
 ### 3.3 Snapshot Isolation
+
+PolarDB Serverless**基于MVCC提供快照隔离Snapshot Isolation SI**，与InnoDB的实现一致，一条记录的前序版本由undo logs创建
+
+事务基于快照时间戳来控制所能看到记录的版本，RW节点会维护一个中央时间戳/序列号Centralized Timestamp Sequence CTS来分配单调递增的时间戳给所有数据库节点：
+
+- **读写事务需要从CTS获取两次时间戳**，事务开始时`ctx_read`和事务结束时`ctx_commit`，每条数据记录和undo log都有单独的列记录`ctx_commit`以及相应的`trx_id`，而读取操作只会返回携带的`ctx_commit`不大于该事务`ctx_read`的记录
+- **只读事务只需要从CTX获取一次时间戳**，事务开始时`ctx_read`
+
+但是一个较大的读写事务下，可能修改了非常多的数据记录，从而若在提交时同步写入所有行`ctx_commit`会带来较大的延迟（写入`ctx_read`则是随着事务进行发起的，因此代价平滑？），因此对于**大事务的`ctx_commit`写入是异步完成的**，这种情况下会导致并发的事务无法得知该已提交事务所影响的记录的版本，需要通过**查询RW节点上CTS的日志记录**来解决
+
+CTS日志是一个环形数组，循环记录了最近的一批读写事务的`ctx_commit`，若该事务尚未提交则相应的`ctx_commit`为空，因此当任意数据库节点发现记录或undo log的`ctx_commit`为空时就可以查询CTS日志来确定该事务是否已经提交，是否可见
+
+上述这种优化方式**类似于chat消息扩散写和扩散读的模型**，对于修改数据多的事务，写入每条数据的`ctx_commit`相当于"扩散写"，代价较大，此时选择其他并发事务主动来查询CTS日志，相当于"扩散读"，则不比等到所有`ctx_commit`写入完成，性能较高
+
+由于获取时间戳的操作极为高频，PolarDB Serveless采用了one-sided RDMA CAS来原子获取并递增CTS计数器，并且CTS日志数组被放置在注册到RDMA NIC的连续内存中，从而RO节点能够极高效的查询CTS日志而不影响RW节点的CPU资源，避免RW节点称为瓶颈
 
 ### 3.4 Page Materialization Offloading
 
