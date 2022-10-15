@@ -103,11 +103,11 @@ PolarFS是一个持久化、原子、可扩展的分布式存储服务，存储�
 
 #### Cache Coherency
 
-PolarDB Serveless与[PolarDB的事务流程](#21-polardb)不同，后者的RO节点必须通过重放redo logs来重建pages而不能直接访问RW节点的缓存，在PolarDB Serveless中RW节点写回远端内存的页数据可以直接被RO节点访问，但是由于节点私有了本地缓存以及共享远端内存，**缓存一致性必须保证**
+PolarDB Serverless与[PolarDB的事务流程](#21-polardb)不同，后者的RO节点必须通过重放redo logs来重建pages而不能直接访问RW节点的缓存，在PolarDB Serverless中RW节点写回远端内存的页数据可以直接被RO节点访问，但是由于节点私有了本地缓存以及共享远端内存，**缓存一致性必须保证**
 
 ![04](images/polardb04.png)
 
-PolarDB Serveless通过**缓存失效cache invalidation**策略来保证缓存一致性：
+PolarDB Serverless通过**缓存失效cache invalidation**策略来保证缓存一致性：
 
 1. RW节点更新页数据
 2. RW节点调用`page_invalidate`发起缓存失效
@@ -153,13 +153,61 @@ CTS日志是一个环形数组，循环记录了最近的一批读写事务的`c
 
 上述这种优化方式**类似于chat消息扩散写和扩散读的模型**，对于修改数据多的事务，写入每条数据的`ctx_commit`相当于"扩散写"，代价较大，此时选择其他并发事务主动来查询CTS日志，相当于"扩散读"，则不比等到所有`ctx_commit`写入完成，性能较高
 
-由于获取时间戳的操作极为高频，PolarDB Serveless采用了one-sided RDMA CAS来原子获取并递增CTS计数器，并且CTS日志数组被放置在注册到RDMA NIC的连续内存中，从而RO节点能够极高效的查询CTS日志而不影响RW节点的CPU资源，避免RW节点称为瓶颈
+由于获取时间戳的操作极为高频，PolarDB Serverless采用了one-sided RDMA CAS来原子获取并递增CTS计数器，并且CTS日志数组被放置在注册到RDMA NIC的连续内存中，从而RO节点能够极高效的查询CTS日志而不影响RW节点的CPU资源，避免RW节点称为瓶颈
 
 ### 3.4 Page Materialization Offloading
 
+传统的单机数据库会周期性的将脏页刷写进存储中，而在PolarDB Serverless中这会引入巨大的网络通信开销，Aurora中将redo log视作page增量修改的记录，从而通过[不断的应用redo log就可以获得最新的page](https://github.com/JasonYuchen/notes/blob/master/papers/2018_SIGMOD_Aurora.md#%E5%86%99%E5%85%A5-writes-in-aurora)
+
+PolarFS将数据库的log和pages分别存储（**log chunk和page chunk**），前端数据库实例的redo log首先追加到log chunks，随后再**异步发送给page chunks并持续更新pages**（发送给page chunk leader并通过ParallelRaft广播给所有page chunk replicas，由于**ParallelRaft可以确保page chunks的一致性**，因此不再需要Aurora中的gossip协议来保证一致）
+
+![05](images/polardb05.png)
+
+1. 在RW节点提交事务前，首先需要刷写redo log到log chunks，当同步**写入三个log chunk replicas之后就可以提交事务**
+2. RW节点根据涉及到的page不同，将redo log进行分区
+3. 分区后的redo log记录被发送给相应的page chunk leader节点
+4. 收到redo log记录后的page chunk节点会立即持久化保存
+5. 随后将记录插入内存散列表，由page id作为key
+6. 回复RW节点，在此刻，RW节点的脏页就可以被安全汰换
+7. 后台中，**旧的page会从cache或disk中读取，并且与内存中该page的记录进行合并应用**从而生成新的page
+8. 新的page会被再次写入page chunk中的新位置
+9. **底层存储系统会记录一个page最近多个版本的数据**，用于响应数据库节点的按版本读取page需求，当page chunk leader节点收到`GetPage`请求时，会将cache或disk中的page数据与内存中更新的记录合并再返回最新的page给数据库节点
+
 ### 3.5 Auto-Scaling
 
+作为一个Serverless的服务，为了避免前端应用感知到数据库服务的扩容和缩容、版本升级、重启等等事件，通过一个代理proxy来隐藏后端细节，当一个RW节点出现变动时，**proxy会等待一小段时间**，以确保旧RW节点完成工作、刷写脏页、停止服务，以及新RW节点启动上线、完成初始化、重建活跃事务列表，随后proxy节点**连接到新的RW节点来继续执行pending statements**，对于进行中的statement（数据库语句即statement，一次事务可以包括一条或多条statements）：
+
+- **long-running statements**：会在新RW节点**回滚之后，由proxy重新提交**给新RW节点从头执行，这会带来一定的额外开销
+- **long-running multi-statement transactions**，例如批量插入：proxy会对**每个statement记录一个savepoint，从而在新RW节点上继续执行**而不需要完全回滚，避免回滚再重做的额外开销
+
+由于在切换时应尽可能快（期间需要暂停活跃事务的执行），PolarDB Serverless将**事务状态（脏页、回滚数据等）通过共享内存而不是远端存储来高效传递**，其他可能的优化还包括将事务锁放置在共享内存中来实现multiple RW节点、缓存中间结果加速分析型语句等
+
 ## 4 Performance Optimization
+
+由于架构上的分离，计算节点、内存节点、存储服务，势必会导致数据库的性能恶化，因此引入了以下优化措施
+
+### 4.1 Optimistic Locking
+
+前述提到[RO节点需要获取S-PL来避免与RW节点的SMO冲突](#32-btrees-structural-consistency)，虽然在大部分情况下获取S-PL锁都可以通过RDMA CAS的乐观路径下完成，但是**依然有可能劣化到需要数次negotiation**
+
+通常可以假定RO节点在从根节点到叶节点的扫描中依次获取S-PL锁的过程不会遇到RW节点的SMO，那么也可以认为**在这个过程中实际上不需要获取S-PL**，此时只需要**检测是否发生了SMO**即可，当检测到SMO时则重新开始扫描，做法如下：
+
+- 在RW节点上维护SMO计数器`SMO_RW`，每次当SMO发生时RW节点就讲`SMO_RW`递增，并且SMO涉及到的所有pages都会记录该值作为`SMO_PAGE`一起存储
+- 查询语句在开始时首先获得RW节点上的`SMO_RW`并作为`SMO_query`缓存，当RO节点执行从根到叶节点扫描B+树时，会对比获取到的每个page所携带的`SMO_PAGE`，一旦发现某个page存在`SMO_PAGE > SMO_query`，说明发生了SMO，此时需要重新执行查询流程
+
+核心原理即乐观并发，假定不会有冲突，记录操作前的版本号，并在过程中检测是否发生了冲突，若未发生则将**原本的每个page读取都要获取S-PL优化到了只有一次开头获取`SMO_query`的操作**（SMO时则需要额外写入`SMO_PAGE`到pages，但本身这些pages就要修改，因此并没有引入额外的开销）
+
+### 4.2 Index-Awared Prefetching
+
+由于内存结点、存储节点的网络开销不可忽视，因此基于数据**局部性locality**的原理，预读取是一种普遍的优化方式，PolarDB Serverless提出**Batched Key Prepare BKP**优化
+
+例如常见的访问二级索引的查询，如下，需要从二级索引中获取`age`，而其他域`name`等则从主索引中获取：
+
+```SQL
+SELECT name, address, mail FROM employee WHERE age > 17
+```
+
+MySQL等系统执行这种操作时，通常首先顺序（**预读取一系列B+树的叶节点pages**）扫描二级索引来获取符合`age > 17`的一系列主索引结果，随后根据结果的多个key来访问（大概率是随机IO）主索引获取其他字段的数据，而**存储引擎中的BKP**就在于优化上述的第二个过程，存储引擎会通过后台**预读取任务将这批key所涉及的页都从远端内存/存储节点读取过来**（类似于pipeline的模式？从二级索引连续获得符合条件的keys并不断将相应的pages从远端节点读取过来？另一个join的优化例子可能更能体现BKP的优势？）
 
 ## 5 Reliability and Failure Recovery
 
