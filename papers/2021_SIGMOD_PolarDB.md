@@ -207,10 +207,92 @@ PolarFS将数据库的log和pages分别存储（**log chunk和page chunk**），
 SELECT name, address, mail FROM employee WHERE age > 17
 ```
 
-MySQL等系统执行这种操作时，通常首先顺序（**预读取一系列B+树的叶节点pages**）扫描二级索引来获取符合`age > 17`的一系列主索引结果，随后根据结果的多个key来访问（大概率是随机IO）主索引获取其他字段的数据，而**存储引擎中的BKP**就在于优化上述的第二个过程，存储引擎会通过后台**预读取任务将这批key所涉及的页都从远端内存/存储节点读取过来**（类似于pipeline的模式？从二级索引连续获得符合条件的keys并不断将相应的pages从远端节点读取过来？另一个join的优化例子可能更能体现BKP的优势？）
+MySQL等系统执行这种操作时，通常首先顺序（**预读取一系列B+树的叶节点pages**）扫描二级索引来获取符合`age > 17`的一系列主索引结果，随后根据结果的多个key来访问（大概率是随机IO）主索引获取其他字段的数据，而**存储引擎中的BKP**就在于优化上述的第二个过程，存储引擎会通过后台**预读取任务将这批key所涉及的页都从远端内存（BKP on Memory）/存储节点（BKP on Storage）读取过来**（类似于pipeline的模式？从二级索引连续获得符合条件的keys并不断将相应的pages从远端节点读取过来？另一个join的优化例子可能更能体现BKP的优势？）
 
 ## 5 Reliability and Failure Recovery
 
+PolarDB Serverless完全分离式的架构允许每个类型的节点单独故障转移failover而不影响整体系统的平稳运行，所有前端的**proxy节点是无状态节点**可以随意重启、替换，用户可以选择任意一个可用的proxy获得服务；而底层存储系统PolarFS中的**存储节点会维护至少3个replicas，通过Parallel Raft算法实现容灾和高可用**
+
+### 5.1 Database Node Recovery
+
+PolarDB Serverless采用[ARIES](https://github.com/JasonYuchen/notes/blob/master/cmu15.445/21.Recovery.md#%E6%81%A2%E5%A4%8D%E7%AE%97%E6%B3%95aries-recovery-algorithm)类型的恢复算法，RW节点和RO节点有不同的恢复流程，**RO节点可以很轻易的被替换，继续采用共享内存中的page数据**，而RW节点的恢复则根据宕机情况有所不同：
+
+- **非计划中的故障 Unplanned Node Failure**
+  **集群管理节点Cluster Manager CM**会通过心跳检测到节点的宕机，并且启动一个RO节点升级流程，步骤如下：
+  1. CM通知所有内存结点和存储节点拒绝旧RW节点的后续写请求
+  2. CM选择一个RO节点并且通知其升级到新RW节点
+  3. 新RW节点从PolarFS中收集每个page chunk的最近版本号`LSN_chunk`，并选择其中最小的值`min{LSN_chunk}`作为检查点版本号`LSN_cp`
+  4. 新RW节点开始读取PolarFS log chunk上的redo log数据，从`LSN_cp`开始直到末尾`LSN_tail`，并且**将这些redo log数据分发广播到所有page chunks**上，等待所有page chunk节点应用这些redo log记录来更新page数据
+  5. 新RW节点扫描远端内存池中的所有page，并且将**无效page（PIB中`invalidation=1`）全部汰换**，也将**旧page（携带的`LSN_page > LSN_tail`）全部汰换**
+  6. 新RW节点将释放旧RW节点获取的所有PL锁
+  7. 新RW节点扫描undo headers来**重建旧RW节点宕机时刻的所有活跃事务**
+  8. 新RW节点此刻已经完成恢复，通知CM升级完成
+  9. 新RW节点**在后台持续应用undo log来回滚**尚未提交的事务
+
+  在上述过程中，步骤3和4实际上就是ARIES算法的**REDO阶段**，区别在于不再是单机执行而是多个page chunks并发执行；步骤5中，根据[缓存一致性的设计](#cache-coherency)，`invalidate=0`的page不可能比存储节点的page更新，另一方面RW节点有可能在redo log刷写进PolarFS之前已经将一些脏页刷写进远端内存，远端内存的page此时比持久化的存储节点page更新，这些page就有`LSN_page > LSN_tail`需要被清理；在**步骤5之后PolarFS中的redo logs、PolarFS中的pages，远端内存里的pages都保证了相互一致**
+
+  步骤5过后所有数据保证了一致，此时也就**不存在处于进展中的SMO操作**，因此可以直接释放所有旧RW节点获得的PL锁，并且在宕机前的热数据基本都保存在远端内存中，因此这种设计同时也回避了传统数据库**冷启动cold cache**的问题
+- **计划中的关闭 Planned Node Down**
+  对于计划中的RW节点切换，旧RW节点会执行一系列清理工作，从而减轻新RW节点上线时的负担，包括同步redo logs到page chunks中、主动释放所有PL锁、将脏页数据写入远端内存、刷写redo logs到PolarFS中，这种准备之下就可以避免新RW节点上的步骤4-6，同时新RW节点还可以主动等待活跃事务数量较少时再真正升级上线，从而减轻步骤7和9的负担
+
+### 5.2 Memory Node Recovery
+
+由于logs总是比脏页写入内存节点要先写入存储节点（在上一节中提到了*RW may already write back dirty pages to the remote memory before the redo logs are flushed to PolarFS*，这里似乎**说法不一致**？但是由于前述的旧pages清理策略，因此这里通过存储节点重建并不会引入不一致），因此当内存节点宕机时可以**从存储节点完全恢复出所缓存的pages**
+
+对于持有[关键元数据](#remote-memory-management)的home node来说，会通过**额外的同步复制机制**来进行容灾，并且home node会负责检测slab node的宕机，当slab node宕机发生时，会检查PAT并处理所有注册在该宕机节点的pages（从RW节点本地缓存中读取并重新注册，或直接`page_unregister`移除）
+
+### 5.3 Cluster Recovery
+
+极端情况下出现整个集群宕机，所有**数据库节点和内存结点都会从完全干净的状态重启，所有内存状态都会从存储节点上重建**，此时RW节点会执行[相同的并行REDO恢复](#51-database-node-recovery)，唯一的缺陷就是这种状态下会不可避免的出现冷启动问题
+
 ## 6 Evaluation
 
+### 6.1 Experiment Setup
+
+略过
+
+### 6.2 Elasticity of the Disaggregated Memory
+
+![08](images/polardb08.png)
+
+### 6.3 Fast Failover
+
+![09](images/polardb09.png)
+
+不同的优化级别下的容灾：
+
+- **Planned switch**：按计划切换RW节点
+- **With remote memory**：启用远端内存以及所有优化措施
+- **With page mat. only**：仅启用[page materialization](#34-page-materialization-offloading)，此时远端内存并不提供缓存的热数据，即会遇到冷启动问题，需要重新加载所有page数据
+- **W/o page mat.**：不启用远端内存缓存和page materialization，此时RW节点需要完成redo log到page的重建过程，因此需要更多的恢复时间
+
+### 6.4 Performance Evaluation
+
+- 整体性能与PolarDB对比
+
+  ![10](images/polardb10.png)
+
+- Effect of local memory size
+
+  ![11](images/polardb11.png)
+
+  ![12](images/polardb12.png)
+
+- Effect of remote memory size
+
+  ![13](images/polardb13.png)
+
+- Effect of [optimistic locking](#41-optimistic-locking)
+
+  ![14](images/polardb14.png)
+
+- Effect of [prefetching](#42-index-awared-prefetching)
+
+  ![15](images/polardb15.png)
+
 ## 7 Related Work
+
+- **Databases with decoupled compute and storage**
+- **Databases with remote memory**
+- **Databases in disaggregated data centers**
+- **Computation pushdown**: near-data processing, data should be processed at the place close to where it is stored to eliminate unnecessary data access and movement.
