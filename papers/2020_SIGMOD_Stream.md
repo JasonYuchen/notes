@@ -27,6 +27,8 @@
 
 ![04](images/stream04.png)
 
+![04.1](images/stream04.1.png)
+
 - 这一阶段开始的系统不再将流处理系统视作不准确的系统，而是开始**通过流处理系统来高效获得精确的结果**，即使出现故障节点
 - 数据的处理就是在流处理系统的有向图上流动，每个节点都是一个算子节点，通过对有向图的分析可以进行并行化等各种调度优化
 
@@ -78,7 +80,6 @@
 - 由算子或中心节点生成全局的进度信息progress information扩散给整个系统
 - 产生进度信息例如**watermark**，参考[此](https://github.com/JasonYuchen/notes/blob/master/streamingsystems/03.Watermarks.md)，忽略晚于此的数据
 - 与In-order架构最大的不同在于**数据按照抵达顺序被处理而不会有重排序过程**，注意这并不是指产生乱序数据，而是指[处理乱序数据](https://github.com/JasonYuchen/notes/blob/master/streamingsystems/04.Advanced_Windowing.md#%E4%BA%8B%E4%BB%B6%E6%97%B6%E9%97%B4%E7%AA%97%E5%8F%A3-event-time-windowing)
-
 
 ### 2.3 Tracking Processing Progress
 
@@ -217,6 +218,109 @@
 
 通常流处理的目标往往在于低延迟，而高可用和容错则是大规模分布式系统所必备的属性，如何**让故障转移，容灾恢复尽可能小的影响到正在进行的流数据处理**是难点
 
+#### Fault Recovery
+
+常见的恢复方式包括两大类：
+
+- **Checkpoint-based recovery**: Accumulated state
+  - 算子持续接收数据并更新本地状态，同时算子之间会周期性的生成一个**分布式一致性快照**保存到持久化存储上
+  - 当某个算子故障时重启，就会从持久化存储上读取保存的快照，并重建所有算子的状态确保**全局恢复到一致点**
+  
+  ![12](images/stream12.png)
+
+  ![13](images/stream13.png)
+
+- **Lineage-based recovery**: State updates
+  - 算子持续接收数据并更新本地状态，同时算子会将更新**批量写入持久化存储并提交commit**
+  - 当某个算子故障时重启，就会从持久化存储上**重放数据来重建状态**，并且其前序算子也需要读取部分数据并**重新计算后，再输出给新启动的算子**
+
+  ![14](images/stream14.png)
+
+流数据系统可以提供的**processing guarantees**：
+
+- **At-most once**
+- **At-least once**
+- **Exactly-once**
+
+#### The output commit problem
+
+> A system should only publish output to the outside world when it is certain that the system can recover the state from where the output was published so that **every output is only published once**
+
+该要求在不同的系统中有不同的名字，包括Exactly-once processing on output，Precise recovery，Strong productions，在系统**故障恢复时可能出现重复发送**数据给外部系统：
+
+![15](images/stream15.png)
+
+达到**端到端恰好一致性end-to-end**的方式包括：
+
+- **Transaction**-based techniques
+  采用**tuple identity**的方式，对每一条tuple都用uid来标识，从而**下游系统主动忽略uid重复的数据**
+
+  ![16](images/stream16.png)
+
+- **Time**-based techniques
+  采用**progress**的方式，系统中使用一个逻辑时钟，将单调递增的逻辑号赋给每个tuple，同时每个算子的checkpoints也包含最新的逻辑时钟值，恢复时算子也会采用checkpoints中的逻辑时钟值，并**忽略上游输出的所有小于该时钟的数据**
+
+  ![17](images/stream17.png)
+
+- **Lineage**-based techniques
+  采用**input-output dependencies**的方式，每一条数据的产生都有其依赖的上游数据，这些上游数据也都有各自依赖的上游，因此当需要宕机恢复时，算子会**cascading形式递归向上游获取数据来重建自身的状态**，参考[Spark中lineage的做法](https://github.com/JasonYuchen/notes/blob/master/mit6.824/15.Big_Data_Spark.md#fault-tolerant)，另外也同样存储了tuple的uid用于下游去重
+
+  ![18](images/stream18.png)
+
+- **Special sink**
+  例如sink是数据库，并且支持两阶段提交，即可以**撤回输出retract output**，那么显然就可以通过这种**transactional sink**来支持恰好一致，包括两种具体的做法：
+  - **Optimistic** output techniques, **MVCC, Versioned/truncatable** output destinations
+  - **Pessimistic** output techniques, **WAL, Transactional** sinks
+
+#### High Availability
+
+- **Active-standby (replicate computations)**
+  运行两个以上的计算实例，双写所有数据，从而当一个计算实例宕机时直接切换到备份计算实例上，随后当宕机实例恢复时，就会自动作为备份实例预备切换，包括：
+
+  - **数据流副本 dataflow replicas**
+
+    ![19](images/stream19.png)
+
+  - **节点副本 node replicas**
+
+    ![20](images/stream20.png)
+
+  这种容灾方式的主要难点在于需要**协调副本replicas来做到exactly-once**语义输出，并且恢复后的实例需要能够快速追赶上当前的进度
+
+  - **双向确认**：primary处理完数据后向standby发送ACK确认序列号，随后standby才能从缓冲队列中删除该数据，相应地standby也需要向primary发送ACK
+
+    ![21](images/stream21.png)
+  
+  - **单向恢复**：恢复的节点直接从运行中的节点获取状态信息，快速追赶上运行中节点的状态
+  - **AAA恢复**：除了primary和standby两个replicas以外，专门有**第三个replica做checkpointing**，当需要宕机恢复状态时，从checkpointing节点获取状态并快速恢复（像是错开snapshoting的Raft架构？）
+
+- **Passive-standby (replicate state)**
+  运行单个计算实例，但是会将primary的状态更新发送给standby节点，包括：
+
+  - **针对云优化 optimized for the cloud, resource utilization**
+
+    ![22](images/stream22.png)
+
+    ![23](images/stream23.png)
+
+  - **针对可用性优化 optimized for aailability, recovery time**
+
+    ![24](images/stream24.png)
+
+    ![25](images/stream25.png)
+
+  这种容灾方式适合**动态调整策略**，根据资源、可用性的需求可以随时setup/teardown节点，符合云上的环境
+
+- **Upstream backup (replicate streams)**
+
+  不需要采用checkpointing和state update，每个节点维护一个**输出队列output queue log**，但显然无法保存所有的输出数据，因此会**丢弃过早或已被ACK的数据**，采用**逐级确认**的方式，OP3向OP2发送已处理数据的ACK，OP2删除数据后再向OP1发送ACK（类似链式复制chain replication），显然缺点之一就是一旦流数据处理链过长，ACK延迟会导致处理效率极其低下，同时输出队列会增长到难以承受的长度
+
+  ![26](images/stream26.png)
+
+  ![27](images/stream27.png)
+
+- **Measure availability**
+  在流数据处理系统中，只要系统能够接收输入数据并输出结果，就视为可用，另外也可以根据**处理进度**，例如event time和processing time的差距，来描述可用性
 
 ### 3.3 Elasticity and Load Management
 
