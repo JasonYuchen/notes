@@ -328,7 +328,110 @@
 
 现代流数据系统通常充分利用充足的云计算资源，通过**分区partition**和**弹性elasticity**扩容缩容来适应工作负载的变化，流数据系统会持续检测性能并在需要时扩容和缩容相应的算子，来确保分区和处理的准确性、时效性，另一方面在数据源支持的情况下，流数据系统也可以采用**背压backpressure**的方式来实现主动限流
 
-TODO
+由于外部数据源的生产速度无法控制，因此一个稳健的流数据系统应该能够**应对数据流速率的变化**
+
+#### 3.3.1 Load Shedding - Selectively drop tuples
+
+当系统无法及时处理传入的数据时，采用一定的策略来主动丢弃数据，这需要**尽可能的减少对数据准确度的影响**，往往是早期流数据系统会采用的方案
+
+- **When**：Load Schedder会持续观测入流数据的量，以及系统的当前处理能力，**基于统计值statistics**来决定何时启动shedding，通常也会引入**反馈控制feedback control loop**
+- **Where**：可以是在数据源执行丢弃（下图第二种），或者是在瓶颈算子前丢弃（下图第一种），在数据源丢弃可能会影响到多个算子的结果，而在算子前丢弃可能会导致重复执行，即多个算子前都要执行一次丢弃，本质上就是**丢弃的粒度**问题
+- **How many**：通常只要丢弃到系统能够处理即可，过度丢弃会影响精确度且没必要
+- **Which**
+  - **Random**：随机丢弃
+  - **Window-aware**：在丢弃时直接整个窗口数据丢弃，从而其他窗口数据依然是准确的，保证了**窗口完整性window integrity**
+  - **Concept-driven**：需要对业务有感知，检查数据内容**计算连续窗口数据的相似度similarity metric across consecutive windows**再执行丢弃
+
+![02](images/stream02.png)
+
+![28](images/stream28.png)
+
+#### 3.3.2 Load-aware Scheduling - Adapt resouce allocation
+
+根据负载**动态调度算子的执行顺序**，从而尽可能将整个系统的缓冲区大小控制在尽可能小，如下图**链式调度chain scheduling**的方法：
+
+- 这个方法假定源数据产生速度一定能够被系统完全消耗，关键在于**减少资源占用**
+- 每个算子有一个**优先级priority**，越高优先级的排在调度的越前面
+- 算子的优先级取决去其在调用链的位置，以及该算子的**选择性selectivity**，每单位时间内能够减少多少数据量
+- 下图中的lower envelope越低，则系统整体额外的资源占用越少
+
+![29](images/stream29.png)
+
+#### 3.3.3 Back-presure - Slow down the data flow
+
+背压机制实际上就是通过堆积数据最终达到**所有环节的处理速度都等于最慢的节点的处理速度**，这种设计通常需要有一个持久化存储层来保证数据不会丢失
+
+- **Local Exchange**：单机内的producer和consumer共享缓冲区实现背压
+
+  ![30](images/stream30.png)
+
+- **Remote Exchange**：多机的producer和consumer实现背压，例如TCP缓冲区，当读取速度变慢后，上游写入也会变慢，但仅依赖TCP的机制过于简单粗糙，若一条连接是多路复用承载不同类型数据的，一种数据过多会直接导致本能处理的其他数据也发送不过去
+
+  ![31](images/stream31.png)
+
+- **Credit System**：通过一个令牌系统来维护全局的credits，从而控制所有节点的处理速度，并且每个算子都可以根据自身的一个或多个下游的credits来决定数据发送速度，从而更精细的控制流量，代价是可能会略微提升端到端的处理延迟
+
+  ![32](images/stream32.png)
+
+#### 3.3.4 Elasticity - Scale the number of resources
+
+在云上的系统，通常可以随时动态启动节点和资源，**弹性扩容/缩容**以应对流量的变化
+
+![33](images/stream33.png)
+
+- **Control**: When and how much to adapt?
+  - 监测环境、流量、系统性能的变化
+  - 检测出瓶颈算子、缓慢异常节点
+  - 根据扩容/缩容的措施，预估影响范围和大小，决定策略以及实施的时机
+- **Mechanism**: How to apply the re-configuration?
+  - 分配资源、启动新实例、剔除问题节点等
+  - 调整数据流和网络拓扑关系
+  - 数据流重新分区，并将状态迁移到新实例上
+  - 采用一些措施来确保扩容/缩容后计算结果的准确和一致
+
+Dhalion (VLDB 2017)提出了一种**启发式heuristic**算法来执行动态扩容缩容如下图：
+
+![34](images/stream34.png)
+
+DS2 (OSDI 2018)提出了一种**预测式predictive**算法来执行动态扩容缩容，其通过采集节点的状态统计信息（忙碌时间占比等）并假定理想工作状态来执行预测算法，例如如下：
+
+1. 原始配置中显然`o1`是瓶颈，只能处理10qps，从而`src`和`o2`都有更多的时间处于等待状态，而我们的目标是整个系统能够处理40qps并且不浪费资源
+2. `o2`目前的处理量是100qps，同时`o2`的空闲时间占比是50%，因此其理想处理能力是200qps，同理计算出`o1`的处理能力
+3. 基于目标40qps，那么就会执行`o1`扩容到4倍节点，`o2`扩容到2倍节点
+
+![35](images/stream35.png)
+
+在执行动态扩容、缩容时，**变更reconfiguration**的执行策略也可以分为三大类：
+
+- **Stop-and-restart**：**暂停所有计算**，并且对全局执行快照，随后重启所有节点并采用新的配置
+- **Partial pause and restart**：在流计算网络节点图中，仅**暂时停止受变更影响的子图**，其他节点正常运行，这些受影响节点相当于执行stop-and-restart，例如FUGU, Seep系统的做法（迁移部分或全部partitions或state）：
+  
+  1. 暂停`a`的上游节点，并且在上游节点前的输入缓冲开始暂存数据
+  2. 由`a`处理完目前自身暂存的数据，随后开始保存自身的状态
+  3. 将`a`的状态传递给`b`
+  4. `b`加载`a`的状态后可以发送`restart`给上游节点继续消费
+
+  ![36](images/stream36.gif)
+
+- **Pro-active replication**：在多个节点上维护**状态副本replicas**，从而在变更过程中不需要暂停/重启任何节点，例如ChronoStream, Rhino系统的做法：
+
+  1. 状态一共分成8个partitions，并且共有2个replicas即`Nsrc/Ndest`，将partition 1从节点`Nsrc`移动到节点`Ndest`上处理
+  2. leader通知原先作为backup的`Ndest`加载p1，期间`Nsrc`依然继续正常处理上游`Nup`发送给`Nsrc`关于p1的数据
+  3. leader在收到`Ndest`关于p1的确认（包含所加载的p1的进度信息）后，将p1迁移以及进度通知上游`Nup`
+  4. 上游`Nup`将p1数据的路由修改至`Ndest`，并从所提供的进度信息重新发送该进度后的数据，即重放replay
+  5. leader通知`Nsrc`关于p1已经迁移结束
+  6. 显然`Ndest`提供的进度信息一定不可能比`Nsrc`更新鲜，因此由于replay的机制，这里`Nsrc`可以直接将p1下放到backup，并继续处理数据
+
+  ![37](images/stream37.gif)
+
+除了执行策略，另一个描述变更reconfiguration的维度就是**状态转移方式state transfer strategies**：
+
+- **All-at-once**：一次性转移所有数据，代价就是当状态庞大时会引入高延迟
+- **Progressive**：增量式转移数据，例如逐分区、逐key等，代价就是状态转移的总时间会延长 `TODO: Megaphone VLDB 2019`
+
+#### Self-managed and re-configurable system
+
+![38](images/stream38.png)
 
 ## 4 Prospects
 
