@@ -438,18 +438,57 @@ DS2 (OSDI 2018)提出了一种**预测式predictive**算法来执行动态扩容
 ### 4.1 Emerging Applications
 
 - **Cloud Applications**
+  
+  ![39](images/stream39.png)
+
 - **Maching Learning**
+
+  ![40](images/stream40.png)
+
 - **Streaming Graphs**
+  - state management
+  - partitioning (of unbounded graphs)
+  - algorithms
+  - languages and operator semantics
+
+  > *Practice of Streaming and Dynamic Graphs: Concepts, Models, Systems, and Parallelism*
+
+  ![41](images/stream41.png)
 
 ### 4.2 The Road Ahead
 
 - **Programming Models**
+  - Actor-like APIs
+  - Streaming ML APIs
+  - Streaming graph abstractions
 - **Transactions**
+  - Distributed transactions, coordiation, automated management
 - **Advanced State Backends**
-- **Loops & Cycles**
+  - **Workload-Aware State Backends**
+    - Databases: optimal plans using different indexes
+    - Stream Processors: LSM for every operator
+  - **Queryable State**
+    - materialized views
+    - exploratory data analysis
+  - **State Versioning**
+    - schema evolution
+    - time-travel stream state access
+    - MVCC on stream state
+  - **Inter-Query/Task State Sharing**
+    - mutable shared state for ML applications
+    - inter-query optimization
+- **Loops & Cycles for Iterative Computation**
+  - Asynchronous Loops
+  - Synchronous Loops
 - **Elasticity & Reconfiguration**
-- **Dynamic Topologies**
-- **Shared Mutable State**
-- **Queryable State**
-- **State Versioning**
+  - Spawn instances on demand
+  - Change resource allocation
+  - Update operator logic
 - **Hardware Acceleration**
+  - GPUs: hetergeneous architectures
+  - Multicore
+  - FPGAs
+  - NVMe
+  - RDMA
+  
+  > *Hardware-conscious stream processing: A survey SIGMOD Record 2020*
