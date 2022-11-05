@@ -24,6 +24,7 @@ Notes about various courses, projects, books, papers, topics, blogs, etc.
 |**papers**|paper|miscellaneous conference papers|
 |**raft**|thesis|*Concensus - Bridging Theory and Practice*, Diego Ongaro|
 |**seastar**|project|[an advanced C++ framework](http://seastar.io) for high-performance server applications on modern hardware|
+|**srs**|book|*Building Secure & Reliable Systems*|
 |**streamingsystems**|book|*Streaming Systems*, Akidau, Slava Chernyak, and Reuven Lax|
 |**sysdesign**|misc|various system design topics|
 |**talks**|misc|various multidisciplinary talks such as p99conf|
