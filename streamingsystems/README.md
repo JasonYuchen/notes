@@ -36,3 +36,11 @@ The What, Where, When, and How of large-scale data processing
     - various different join types within the context of streaming
     - temporal validity windows
 10. **[The Evolution of Large-Scale Data Processing](10.The_Evolution_Of_Large_Scale_Data_Processing.md)**
+
+## RisingWave
+
+[RisingWave](https://www.risingwave-labs.com/) is an open-source cloud-native streaming database that uses SQL as the interface to manage and query data. It is designed to reduce the complexity and cost of building real-time applications. RisingWave consumes streaming data, performs incremental computations when new data come in, and updates results dynamically. As a database system, RisingWave maintains results in its own storage so that users can access data efficiently. You can sink data from RisingWave to an external stream for storage or additional processing.
+
+Some interesting engineering topics from RisingWave team:
+
+- [State Management for Cloud Native Streaming: Getting to the Core](https://www.risingwave-labs.com/blog/state-management-for-cloud-native-streaming/)
