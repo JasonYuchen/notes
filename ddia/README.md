@@ -30,3 +30,7 @@
 3. [Integrating Databases and Kafka with Change Data Capture](EX.Making_Sense_of_Stream_Processing.md#变化数据捕获)
 4. The Unix Philosophy of Distributed Data
 5. [Turning the Database Inside Out](EX.Making_Sense_of_Stream_Processing.md#再看数据库)
+
+## EX. CRDT
+
+1. [CRDTs: The Hard Parts](EX.CRDT_The_Hard_Parts.md)
