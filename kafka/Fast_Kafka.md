@@ -46,10 +46,44 @@
 
   ![04](images/redpanda04.svg)
 
+  `TODO`
+  
+  [segment](https://github.com/redpanda-data/redpanda/blob/dev/src/v/storage/segment.cc)
+  
+  [segment appender](https://github.com/redpanda-data/redpanda/blob/dev/src/v/storage/segment_appender.cc) 
+  
+  [concurrency](https://github.com/redpanda-data/redpanda/commit/7beddff36f248ef2d3663eb83ed48d4d5951f5e8)
+  
+  [?](https://github.com/redpanda-data/redpanda/commit/2c9a4dd4c95f5bb7a18d15d27d3176736a197ee6)
+
+  ```text
+  -> append segment
+    -> append head
+      -> return ready (maybe await commitment?)
+  
+  .> background_head_write
+    -> dma_write head (out-of-order?)
+      -> maybe advance committed
+        -> notify awaiters if any
+  
+  .> flush when necessary
+    -> advance committed (`fsync`-ed offset) 
+      -> notify awaiters if any
+  ```
+
+  How to wait and how to notify ? out-of-order dma_write with accumulative commitment (like tcp sliding window) ? need further confirmation.
+
 - **Raft read-ahead op dispatcher**
   在解析Raft操作时通过人为的毫秒级延迟Raft的写入操作，解析完更多的Raft操作从而可以在一次`fsync()`中包含更多的写入，如下图，确定了图中范围内的全部操作后才开始写入，而不是每解析一个写入都立即写入并同步，此时优化后只需要一次同步（*AKA批量处理？*）
   
   ![05](images/redpanda05.svg)
+
+- **No Virtual Memory**
+  `TODO` [Seastar Allocator & Fragmentation Analysis](https://github.com/redpanda-data/redpanda/blob/dev/docs/rfcs/20201208_fragmentation.md)
+
+- **TPC Buffer Management**
+
+  `TODO` [iobuf class](https://github.com/redpanda-data/redpanda/blob/dev/src/v/bytes/iobuf.h)
 
 - Redpanda peek() `TODO` [followup](https://www.infoq.com/presentations/raft-kafka-api/)
   - pipelining
