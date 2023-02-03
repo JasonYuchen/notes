@@ -1,4 +1,4 @@
-# CMU 14-445 Database Systems
+# CMU 14-445 Database Systems (Fall 2020)
 
 [course schedule](https://15445.courses.cs.cmu.edu/fall2020/schedule.html)
 
