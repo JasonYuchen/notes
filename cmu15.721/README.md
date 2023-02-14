@@ -9,6 +9,9 @@
 
 ## Lecture 02 - Modern Analytical Database Systems
 
+[lecture notes](02.Modern_Analytical_Database_Systems.md)
+[material notes](Query_Engine_on_Disaggregated_Storage.md)
+
 ## Lecture 03 - Storage Models, Data Layout, & System Catalogs
 
 ## Lecture 04 - OLAP Indexes
