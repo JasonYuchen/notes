@@ -14,7 +14,13 @@
 
 ## Lecture 03 - Storage Models, Data Layout, & System Catalogs
 
+[lecture notes](03.Storage_Models_Data_Layout.md)
+[material notes](Column_Stores_Row_Stores.md)
+
 ## Lecture 04 - OLAP Indexes
+
+[lecture notes](04.OLAP_Indexes.md)
+[material notes](Column_Sketches.md)
 
 ## Lecture 05 - Database Compression
 
