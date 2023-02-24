@@ -17,7 +17,7 @@ design?
 
 其他研究和本文提出了以下列存储所采用的优化：
 
-- **延迟物化 Late materialization**：在查询计划中，列数据被读取后会尽可能晚的与其他列数据一起参与组成行，提供了约3倍提升
+- **延迟物化 Late materialization**：在查询计划中，列数据被读取后会尽可能晚的与其他列数据一起参与组成行，提供了约3倍提升（实际上**延迟解压缩只会导致复杂度提升和性能下降，实际系统中并没有采用这种"优化"的**，并且C-Store的商业版Vertica删除了这种设计）
 - **块式迭代 Block iteration**：一个列的多行数据会作为整块数据一起访问，而不是[Volcano式](https://github.com/JasonYuchen/notes/blob/master/cmu15.445/12.Query_Execution_I.md#1-%E8%BF%AD%E4%BB%A3%E5%BC%8F-iterator-model)的单行单次迭代，当与延迟物化组合使用时也被称为**向量化处理 vectorized query processing**，提供了约1.5倍提升
 - **列压缩 Column-specific compression**：不同数据类型的列可以采用不同的压缩手段，例如run-length encoding RLE并且支持在压缩数据上直接执行操作，提供了**数量级**的性能提升
 - **隐连接 Invisible joins**：提供了约1.5倍提升

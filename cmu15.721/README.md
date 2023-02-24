@@ -24,6 +24,9 @@
 
 ## Lecture 05 - Database Compression
 
+[lecture notes](05.Database_Compression.md)
+[material notes](Integrating_Compression_and_Execution.md)
+
 ## Lecture 06 - Query Execution & Processing
 
 ## Lecture 07 - Query Scheduling
