@@ -29,7 +29,13 @@
 
 ## Lecture 06 - Query Execution & Processing
 
+[lecture notes](06.Query_Execution.md)
+[material notes](MonetDB.md)
+
 ## Lecture 07 - Query Scheduling
+
+[lecture notes](07.Query_Scheduling.md)
+[material notes](Morsel.md)
 
 ## Lecture 08 - Vectorized Execution
 
