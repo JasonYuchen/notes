@@ -39,6 +39,9 @@
 
 ## Lecture 08 - Vectorized Execution
 
+[lecture notes](08.Vectorized_Execution.md)
+[material notes](SIMD_Investments.md)
+
 ## Lecture 09 - Query Compilation
 
 ## Lecture 10 - Vectorization vs. Compilation
