@@ -44,6 +44,9 @@
 
 ## Lecture 09 - Query Compilation
 
+[lecture notes](09.Query_Compilation_Code_Generation.md)
+[material notes](Compiled_Query.md)
+
 ## Lecture 10 - Vectorization vs. Compilation
 
 ## Lecture 11 - Parallel Join Algorithms (Hashing)
