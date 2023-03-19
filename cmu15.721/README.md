@@ -49,6 +49,9 @@
 
 ## Lecture 10 - Vectorization vs. Compilation
 
+[lecture notes](10.Vectorization_vs_Compilation.md)
+[material notes](Compiled_Vectorized_Queries.md)
+
 ## Lecture 11 - Parallel Join Algorithms (Hashing)
 
 ## Lecture 12 - Parallel Join Algorithms (Sorting)
