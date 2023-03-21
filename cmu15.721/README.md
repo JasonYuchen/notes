@@ -54,6 +54,9 @@
 
 ## Lecture 11 - Parallel Join Algorithms (Hashing)
 
+[lecture notes](11.Hash_Join.md)
+[material notes](Equi_Joins.md)
+
 ## Lecture 12 - Parallel Join Algorithms (Sorting)
 
 ## Lecture 13 - Multi-Way Joins
