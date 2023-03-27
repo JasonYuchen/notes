@@ -59,7 +59,13 @@
 
 ## Lecture 12 - Parallel Join Algorithms (Sorting)
 
+[lecture notes](12.Sort_Merge_Join.md)
+[material notes](Sort_Hash_Revisited.md)
+
 ## Lecture 13 - Multi-Way Joins
+
+[lecture notes](13.Multi-Way_Join.md)
+[material notes](Worst-Case_Optimal_Joins.md)
 
 ## Lecture 14 - Server-side Logic Execution
 
