@@ -69,6 +69,9 @@
 
 ## Lecture 14 - Server-side Logic Execution
 
+[lecture notes](14.Logic_Execution.md)
+[material notes](Froid.md)
+
 ## Lecture 15 - Networking Protocols
 
 ## Lecture 16 - Optimizer Implementation (Overview)
