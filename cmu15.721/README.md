@@ -74,6 +74,9 @@
 
 ## Lecture 15 - Networking Protocols
 
+[lecture notes](15.Database_Networking.md)
+[material notes](Client_Protocol_Redesign.md)
+
 ## Lecture 16 - Optimizer Implementation (Overview)
 
 ## Lecture 17 - Optimizer Implementation (Top-Down vs. Bottom-Up)
