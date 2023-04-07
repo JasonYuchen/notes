@@ -79,6 +79,9 @@
 
 ## Lecture 16 - Optimizer Implementation (Overview)
 
+[lecture notes](16.Optimizer_I.md)
+[material notes](Overview_of_Query_Optimization.md)
+
 ## Lecture 17 - Optimizer Implementation (Top-Down vs. Bottom-Up)
 
 ## Lecture 18 - Cost Models
