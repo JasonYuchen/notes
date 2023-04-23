@@ -1,6 +1,7 @@
 # CMU 15-721 Advanced Database Systems (Spring 2023)
 
 [course schedule](https://15721.courses.cs.cmu.edu/spring2023/schedule.html)
+[project 1](Project.md)
 
 ## Lecture 01 - History of Databases
 
@@ -84,9 +85,18 @@
 
 ## Lecture 17 - Optimizer Implementation (Top-Down vs. Bottom-Up)
 
+[lecture notes](17.Optimizer_II.md)
+[material notes](Cascades.md)
+
 ## Lecture 18 - Cost Models
 
+[lecture notes](18.Cost_Models.md)
+[material notes](How_Good_Are_Query_Optimizers.md)
+
 ## Lecture 19 - System Analysis (Dremel / BigQuery)
+
+[lecture notes](19.Dremel.md)
+[material notes](Dremel.md)
 
 ## Lecture 20 - System Analysis (Databricks / Spark)
 
