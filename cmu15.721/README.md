@@ -100,6 +100,9 @@
 
 ## Lecture 20 - System Analysis (Databricks / Spark)
 
+[lecture notes](20.Photon.md)
+[material notes](Photon.md)
+
 ## Lecture 21 - System Analysis (Snowflake)
 
 ## Lecture 22 - System Analysis (DuckDB)
