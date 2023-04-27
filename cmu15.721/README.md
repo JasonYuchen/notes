@@ -105,6 +105,9 @@
 
 ## Lecture 21 - System Analysis (Snowflake)
 
+[lecture notes](21.Snowflake.md)
+[material notes](Snowflake.md)
+
 ## Lecture 22 - System Analysis (DuckDB)
 
 ## Lecture 23 - System Analysis (Velox)
