@@ -110,4 +110,7 @@
 
 ## Lecture 22 - System Analysis (DuckDB)
 
+[lecture notes](22.DuckDB.md)
+[material notes](DuckDB.md)
+
 ## Lecture 23 - System Analysis (Velox)
