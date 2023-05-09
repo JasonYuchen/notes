@@ -114,3 +114,6 @@
 [material notes](DuckDB.md)
 
 ## Lecture 23 - System Analysis (Velox)
+
+[lecture notes](23.Velox.md)
+[material notes](Velox.md)
