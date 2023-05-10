@@ -117,3 +117,8 @@
 
 [lecture notes](23.Velox.md)
 [material notes](Velox.md)
+
+## Lecture 24 - System Analysis (Redshift)
+
+[lecture notes](24.Redshift.md)
+[material notes](Redshift.md)
