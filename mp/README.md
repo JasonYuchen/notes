@@ -1,0 +1,64 @@
+# Microservices Patterns
+
+## List of Patterns
+
+- **Application architecture patterns**
+  - Monolithic architecture
+  - Microservice architecture
+- **Decomposition patterns**
+  - Decompose by business capability
+  - Decompose by subdomain
+- **Messaging style patterns**
+  - Messaging
+  - Remote procedure invocation / RPC
+- **Reliable communications pattern**
+  - Circuit breaker
+- **Service discovery patterns**
+  - 3rd party registration
+  - Client-side discovery
+  - Self-registration
+  - Server-side discovery
+- **Transactional messaging patterns**
+  - Polling publisher
+  - Transaction log tailing
+  - Transactional outbox
+- **Data consistency patterns**
+  - Saga
+- **Business logic design patterns**
+  - Aggregate
+  - Domain event
+  - Domain model
+  - Event sourcing
+  - Transaction script
+- **Querying patterns**
+  - API composition
+  - Command query responsibility segregation
+- **External API patterns**
+  - API gateway
+  - Backends for frontends
+- **Testing patterns**
+  - Consumer-driven contract test
+  - Consumer-side contract test
+  - Service component test
+- **Security patterns**
+  - Access token
+- **Cross-cutting concerns patterns**
+  - Externalized configuration
+  - Microservice chassis
+- **Observability patterns**
+  - Application metrics
+  - Audit logging
+  - Distributed tracing
+  - Exception tracking
+  - Health check API
+  - Log aggregation
+- **Deployment patterns**
+  - Deploy a service as a container
+  - Deploy a service as a VM
+  - Language-specific packaging format
+  - Service mesh
+  - Serverless deployment
+  - Sidecar
+- **Refactoring to microservices patterns**
+  - Anti-corruption layer
+  - Strangler application
