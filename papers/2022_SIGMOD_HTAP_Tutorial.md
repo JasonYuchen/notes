@@ -44,7 +44,7 @@
   - Splice Machine: loosely couple HBase (TP) + Spark (AP), high scalability, high isolation, low freshness
   - Wildfire: tightly couple OLAP engines with Spark, high scalability, low freshness
 
-![01](images/HTAP01.png)
+![p01](images/HTAP01.png)
 
 ## HTAP Techniques
 
@@ -85,7 +85,7 @@
   - Peloton
   - Proteus (TODO: add figure 4)
 
-![02](images/HTAP02.png)
+![p02](images/HTAP02.png)
 
 ## HTAP Benchmarks
 

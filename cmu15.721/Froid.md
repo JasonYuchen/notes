@@ -8,7 +8,7 @@
 
 ## Background
 
-![01](images/froid01.png)
+![p01](images/froid01.png)
 
 - 标量的UDF示例：`SELECT c_name, dbo.total_price(c_custkey) FROM customer;`
 - SQL Server中UDF的计算过程：
@@ -27,7 +27,7 @@
 
 > If the entire body of an imperative UDF can be expressed as a single relational expression R, then any query that invokes this UDF can be **transformed into a query with R as a nested sub-query** in place of the UDF.
 
-![03](images/froid03.png)
+![p03](images/froid03.png)
 
 在查询binding过程中，加入遇到了一个UDF算子，控制流就转移到Froid进行**代数转化UDF Algebrization**，包括UDF解析、等价关系表达式替换，若过程中继续遇到嵌套的UDF算子，则递归执行上述过程，最后**完成替换的查询语法树只包含常规查询算子**，整体交给优化器进行优化
 
@@ -46,7 +46,7 @@ Froid支持替换的映射关系如下：
 
 在UDF中的每一条语句都会被解析，并且整个UDF会被分割为**不同层级的regions**，region即代码块，例如基本块、分支、循环等，region也可以包含其他region，整个UDF也被视为一个region，例如下图标记颜色的sequential region和conditional region：
 
-![01](images/froid01.png)
+![p01](images/froid01.png)
 
 ### Relational Expressions for Regions
 
@@ -96,7 +96,7 @@ Froid首先对独立的**命令式语句imperative statements构造关系表达�
 
 当同级别的region都被转换为关系表达式后，就会**采用`APPLY`算子将其整合到一个关系表达式**，供更高层次的region使用：
 
-![04](images/froid04.png)
+![p04](images/froid04.png)
 
 ## Substitution and Optimization
 
@@ -113,8 +113,8 @@ Froid首先对独立的**命令式语句imperative statements构造关系表达�
 - **Constant Folding and Propagation**
 - **Dead Code Elimination**
 
-![05](images/froid05.png)
+![p05](images/froid05.png)
 
 ## Evaluation
 
-![06](images/froid06.png)
+![p06](images/froid06.png)

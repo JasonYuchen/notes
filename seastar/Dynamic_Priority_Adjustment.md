@@ -17,7 +17,7 @@
 5. 随着A占用的减少，B占用开始增加，CPU始终全负荷运转，B的队列也开始减少，最终回到低于`cp1`的位置
 6. 系统回到低负载、A和B各占用50%的CPU资源
 
-![1](images/backlog_controller1.png)
+![p1](images/backlog_controller1.png)
 
 ```C++
 // Simple proportional controller to adjust shares for processes for which a backlog can be clearly

@@ -2,7 +2,7 @@
 
 ## 1 Introduction
 
-![01](images/stream01.png)
+![p01](images/stream01.png)
 
 > What is a stream ?
 > A data set that is produced **incrementally** over time, rather than being available in full before its processing begins.
@@ -13,19 +13,19 @@
 
 **第一阶段**的流数据管理系统Data Stream Management System, DSMS与数据库管理系统DBMS拥有非常类似的架构：
 
-![02](images/stream02.png)
+![p02](images/stream02.png)
 
 - Load Shedder**动态丢弃数据**以防系统过载
 - 系统目标在于快速高效的给出**大约准确**的结果
 
 **第二阶段**以[MapReduce](https://github.com/JasonYuchen/notes/blob/master/mit6.824/MapReduce.md)的出现为开端，经典架构就是双写数据的lambda架构
 
-![03](images/stream03.png)
+![p03](images/stream03.png)
 
 - 一侧写入低延迟的流处理系统获得快速但不精确的结果
 - 另一侧写入高延迟的批处理系统获得准确但不及时的结果
 
-![04](images/stream04.png)
+![p04](images/stream04.png)
 
 ![04.1](images/stream04.1.png)
 
@@ -67,7 +67,7 @@
 - 外部不可控因素，例如网络路由、多个输入源交替产生数据等
 - 系统处理因素，例如多个并行join产生shuffled的流数据等
   
-    ![05](images/stream05.png)
+    ![p05](images/stream05.png)
 
 **In-order架构**：
 
@@ -134,7 +134,7 @@
 
   以Flink with RocksDB为例，Flink节点持有本地的RocksDB，所有状态相关的读写、快照均通过RocksDB完成：
 
-  ![06](images/stream06.png)
+  ![p06](images/stream06.png)
 
   采用LSM结构例如RocksDB的状态存储是最常见的方式，但依然有更多可以考虑的方面：
   - 流访问数据时确保了非并发，因此存在**多余的low-level latching**
@@ -151,7 +151,7 @@
 
   以Google Dataflow (Millwheel) with Spanner/BigTable为例，Dataflow通过外部的Spanner/BigTable数据库来管理状态的读写和快照，自身的Task是无状态的，所有更新都通过单条事务完整的写入外部数据库：
 
-  ![07](images/stream07.png)
+  ![p07](images/stream07.png)
 
 - **Embeded Compute**
   与其他服务于计算的状态不同，这一类是服务于状态的计算，即**基于存储系统的内置流计算引擎**，例如Kafka-Streams on Kafka、S-Store on H-Store等系统
@@ -161,11 +161,11 @@
 
   以S-Store on H-Store为例，通过在H-Store上的插件S-Store，实现了**将无限的流数据计算过程转换成了一系列事务，每个事务可以包括数个task的计算**，并且在H-Store上调度执行并group commit从而完成计算：
 
-  ![08](images/stream08.png)
+  ![p08](images/stream08.png)
 
   以Kafka-Streams on Kafka为例，Kafka本身是log as a database，通过额外引入RocksDB来保存状态并在每个Kafka Brokers上完成计算task：
 
-  ![09](images/stream09.png)
+  ![p09](images/stream09.png)
 
 关于状态存储，另外还可以参考：
 
@@ -200,7 +200,7 @@
 - **Action-Level** Transactional Stream Processing
   - commit每个操作到状态存储中
 
-![10](images/stream10.png)
+![p10](images/stream10.png)
 
 - **Epoch-Level** Transactional Stream Processing
   - commit每个epoch到状态存储中，做法有两个方式：
@@ -210,7 +210,7 @@
     - Variant 2.2 - **Unaligned Epoch Snapshots**：一个起始进程向流系统注入一个特殊的marker，**收到第一个marker的节点就开始进行快照**而不必等待所有上游节点的marker，一旦收到某个上游的marker后系统必须**将所有该上游后续消息记录到redo log**里直到收到所有上游的markers，从而系统的状态加增量的消息一起构成了快照，例如Flink采用的**Chandy-Lamport修改版算法**
     - Variant 2.3 - **Aligned Epoch Snapshots**：同样注入特殊的marker，一旦收到某个上游的marker后就阻止处理该上游的后续消息，直到收到所有上游的markers才会开始执行快照，因此**快照仅包含系统状态**而没有在途的消息（类似于半同步的做法），从而认为每个节点是对齐的aligned，相较于unaligned算法性能略微差一些，aligned算法能够反映一个完整的epoch事务，同时由于**没有redo log及消息回放**因此配置修改、容灾恢复时非常高效
 
-![11](images/stream11.png)
+![p11](images/stream11.png)
 
 `TODO: Chi: A Scalable and Programmable Control Plane for Distributed Stream Processing Systems`
 
@@ -226,15 +226,15 @@
   - 算子持续接收数据并更新本地状态，同时算子之间会周期性的生成一个**分布式一致性快照**保存到持久化存储上
   - 当某个算子故障时重启，就会从持久化存储上读取保存的快照，并重建所有算子的状态确保**全局恢复到一致点**
   
-  ![12](images/stream12.png)
+  ![p12](images/stream12.png)
 
-  ![13](images/stream13.png)
+  ![p13](images/stream13.png)
 
 - **Lineage-based recovery**: State updates
   - 算子持续接收数据并更新本地状态，同时算子会将更新**批量写入持久化存储并提交commit**
   - 当某个算子故障时重启，就会从持久化存储上**重放数据来重建状态**，并且其前序算子也需要读取部分数据并**重新计算后，再输出给新启动的算子**
 
-  ![14](images/stream14.png)
+  ![p14](images/stream14.png)
 
 流数据系统可以提供的**processing guarantees**：
 
@@ -248,24 +248,24 @@
 
 该要求在不同的系统中有不同的名字，包括Exactly-once processing on output，Precise recovery，Strong productions，在系统**故障恢复时可能出现重复发送**数据给外部系统：
 
-![15](images/stream15.png)
+![p15](images/stream15.png)
 
 达到**端到端恰好一致性end-to-end**的方式包括：
 
 - **Transaction**-based techniques
   采用**tuple identity**的方式，对每一条tuple都用uid来标识，从而**下游系统主动忽略uid重复的数据**
 
-  ![16](images/stream16.png)
+  ![p16](images/stream16.png)
 
 - **Time**-based techniques
   采用**progress**的方式，系统中使用一个逻辑时钟，将单调递增的逻辑号赋给每个tuple，同时每个算子的checkpoints也包含最新的逻辑时钟值，恢复时算子也会采用checkpoints中的逻辑时钟值，并**忽略上游输出的所有小于该时钟的数据**
 
-  ![17](images/stream17.png)
+  ![p17](images/stream17.png)
 
 - **Lineage**-based techniques
   采用**input-output dependencies**的方式，每一条数据的产生都有其依赖的上游数据，这些上游数据也都有各自依赖的上游，因此当需要宕机恢复时，算子会**cascading形式递归向上游获取数据来重建自身的状态**，参考[Spark中lineage的做法](https://github.com/JasonYuchen/notes/blob/master/mit6.824/15.Big_Data_Spark.md#fault-tolerant)，另外也同样存储了tuple的uid用于下游去重
 
-  ![18](images/stream18.png)
+  ![p18](images/stream18.png)
 
 - **Special sink**
   例如sink是数据库，并且支持两阶段提交，即可以**撤回输出retract output**，那么显然就可以通过这种**transactional sink**来支持恰好一致，包括两种具体的做法：
@@ -279,17 +279,17 @@
 
   - **数据流副本 dataflow replicas**
 
-    ![19](images/stream19.png)
+    ![p19](images/stream19.png)
 
   - **节点副本 node replicas**
 
-    ![20](images/stream20.png)
+    ![p20](images/stream20.png)
 
   这种容灾方式的主要难点在于需要**协调副本replicas来做到exactly-once**语义输出，并且恢复后的实例需要能够快速追赶上当前的进度
 
   - **双向确认**：primary处理完数据后向standby发送ACK确认序列号，随后standby才能从缓冲队列中删除该数据，相应地standby也需要向primary发送ACK
 
-    ![21](images/stream21.png)
+    ![p21](images/stream21.png)
   
   - **单向恢复**：恢复的节点直接从运行中的节点获取状态信息，快速追赶上运行中节点的状态
   - **AAA恢复**：除了primary和standby两个replicas以外，专门有**第三个replica做checkpointing**，当需要宕机恢复状态时，从checkpointing节点获取状态并快速恢复（像是错开snapshoting的Raft架构？）
@@ -299,15 +299,15 @@
 
   - **针对云优化 optimized for the cloud, resource utilization**
 
-    ![22](images/stream22.png)
+    ![p22](images/stream22.png)
 
-    ![23](images/stream23.png)
+    ![p23](images/stream23.png)
 
   - **针对可用性优化 optimized for aailability, recovery time**
 
-    ![24](images/stream24.png)
+    ![p24](images/stream24.png)
 
-    ![25](images/stream25.png)
+    ![p25](images/stream25.png)
 
   这种容灾方式适合**动态调整策略**，根据资源、可用性的需求可以随时setup/teardown节点，符合云上的环境
 
@@ -315,9 +315,9 @@
 
   不需要采用checkpointing和state update，每个节点维护一个**输出队列output queue log**，但显然无法保存所有的输出数据，因此会**丢弃过早或已被ACK的数据**，采用**逐级确认**的方式，OP3向OP2发送已处理数据的ACK，OP2删除数据后再向OP1发送ACK（类似链式复制chain replication），显然缺点之一就是一旦流数据处理链过长，ACK延迟会导致处理效率极其低下，同时输出队列会增长到难以承受的长度
 
-  ![26](images/stream26.png)
+  ![p26](images/stream26.png)
 
-  ![27](images/stream27.png)
+  ![p27](images/stream27.png)
 
 - **Measure availability**
   在流数据处理系统中，只要系统能够接收输入数据并输出结果，就视为可用，另外也可以根据**处理进度**，例如event time和processing time的差距，来描述可用性
@@ -342,9 +342,9 @@
   - **Window-aware**：在丢弃时直接整个窗口数据丢弃，从而其他窗口数据依然是准确的，保证了**窗口完整性window integrity**
   - **Concept-driven**：需要对业务有感知，检查数据内容**计算连续窗口数据的相似度similarity metric across consecutive windows**再执行丢弃
 
-![02](images/stream02.png)
+![p02](images/stream02.png)
 
-![28](images/stream28.png)
+![p28](images/stream28.png)
 
 #### 3.3.2 Load-aware Scheduling - Adapt resouce allocation
 
@@ -355,7 +355,7 @@
 - 算子的优先级取决去其在调用链的位置，以及该算子的**选择性selectivity**，每单位时间内能够减少多少数据量
 - 下图中的lower envelope越低，则系统整体额外的资源占用越少
 
-![29](images/stream29.png)
+![p29](images/stream29.png)
 
 #### 3.3.3 Back-presure - Slow down the data flow
 
@@ -363,21 +363,21 @@
 
 - **Local Exchange**：单机内的producer和consumer共享缓冲区实现背压
 
-  ![30](images/stream30.png)
+  ![p30](images/stream30.png)
 
 - **Remote Exchange**：多机的producer和consumer实现背压，例如TCP缓冲区，当读取速度变慢后，上游写入也会变慢，但仅依赖TCP的机制过于简单粗糙，若一条连接是多路复用承载不同类型数据的，一种数据过多会直接导致本能处理的其他数据也发送不过去
 
-  ![31](images/stream31.png)
+  ![p31](images/stream31.png)
 
 - **Credit System**：通过一个令牌系统来维护全局的credits，从而控制所有节点的处理速度，并且每个算子都可以根据自身的一个或多个下游的credits来决定数据发送速度，从而更精细的控制流量，代价是可能会略微提升端到端的处理延迟
 
-  ![32](images/stream32.png)
+  ![p32](images/stream32.png)
 
 #### 3.3.4 Elasticity - Scale the number of resources
 
 在云上的系统，通常可以随时动态启动节点和资源，**弹性扩容/缩容**以应对流量的变化
 
-![33](images/stream33.png)
+![p33](images/stream33.png)
 
 - **Control**: When and how much to adapt?
   - 监测环境、流量、系统性能的变化
@@ -391,7 +391,7 @@
 
 Dhalion (VLDB 2017)提出了一种**启发式heuristic**算法来执行动态扩容缩容如下图：
 
-![34](images/stream34.png)
+![p34](images/stream34.png)
 
 DS2 (OSDI 2018)提出了一种**预测式predictive**算法来执行动态扩容缩容，其通过采集节点的状态统计信息（忙碌时间占比等）并假定理想工作状态来执行预测算法，例如如下：
 
@@ -399,7 +399,7 @@ DS2 (OSDI 2018)提出了一种**预测式predictive**算法来执行动态扩容
 2. `o2`目前的处理量是100qps，同时`o2`的空闲时间占比是50%，因此其理想处理能力是200qps，同理计算出`o1`的处理能力
 3. 基于目标40qps，那么就会执行`o1`扩容到4倍节点，`o2`扩容到2倍节点
 
-![35](images/stream35.png)
+![p35](images/stream35.png)
 
 在执行动态扩容、缩容时，**变更reconfiguration**的执行策略也可以分为三大类：
 
@@ -411,7 +411,7 @@ DS2 (OSDI 2018)提出了一种**预测式predictive**算法来执行动态扩容
   3. 将`a`的状态传递给`b`
   4. `b`加载`a`的状态后可以发送`restart`给上游节点继续消费
 
-  ![36](images/stream36.gif)
+  ![p36](images/stream36.gif)
 
 - **Pro-active replication**：在多个节点上维护**状态副本replicas**，从而在变更过程中不需要暂停/重启任何节点，例如ChronoStream, Rhino系统的做法：
 
@@ -422,7 +422,7 @@ DS2 (OSDI 2018)提出了一种**预测式predictive**算法来执行动态扩容
   5. leader通知`Nsrc`关于p1已经迁移结束
   6. 显然`Ndest`提供的进度信息一定不可能比`Nsrc`更新鲜，因此由于replay的机制，这里`Nsrc`可以直接将p1下放到backup，并继续处理数据
 
-  ![37](images/stream37.gif)
+  ![p37](images/stream37.gif)
 
 除了执行策略，另一个描述变更reconfiguration的维度就是**状态转移方式state transfer strategies**：
 
@@ -431,7 +431,7 @@ DS2 (OSDI 2018)提出了一种**预测式predictive**算法来执行动态扩容
 
 #### Self-managed and re-configurable system
 
-![38](images/stream38.png)
+![p38](images/stream38.png)
 
 ## 4 Prospects
 
@@ -439,11 +439,11 @@ DS2 (OSDI 2018)提出了一种**预测式predictive**算法来执行动态扩容
 
 - **Cloud Applications**
   
-  ![39](images/stream39.png)
+  ![p39](images/stream39.png)
 
 - **Maching Learning**
 
-  ![40](images/stream40.png)
+  ![p40](images/stream40.png)
 
 - **Streaming Graphs**
   - state management
@@ -453,7 +453,7 @@ DS2 (OSDI 2018)提出了一种**预测式predictive**算法来执行动态扩容
 
   > *Practice of Streaming and Dynamic Graphs: Concepts, Models, Systems, and Parallelism*
 
-  ![41](images/stream41.png)
+  ![p41](images/stream41.png)
 
 ### 4.2 The Road Ahead
 

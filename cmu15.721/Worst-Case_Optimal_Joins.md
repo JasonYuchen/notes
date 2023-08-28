@@ -25,7 +25,7 @@ Q_\Delta = R_1(v_1,v_2) \Join R_2(v_2,v_3) \Join R_3(v_3,v_1)
 
 假定三个表相等，并将tuples视为图中的边，从而 $Q_\Delta$ 的结果就包含了图中的有向环，即`(0, 1, 2)`、`(1, 2, 0)`、`(2, 0, 1)`三条数据；若是通过binary join的方式来连接，则首先要连接前两个关系，产生中间结果相当于是枚举了所有长度为2的有向路径，数量远超最终的三个结果
 
-![01](images/mjoin01.png)
+![p01](images/mjoin01.png)
 
 采用本文的worst-case optimal join算法会采用**递归回溯搜索的方式找到有效的连接key**，避免枚举海量的中间结果：
 
@@ -35,7 +35,7 @@ Q_\Delta = R_1(v_1,v_2) \Join R_2(v_2,v_3) \Join R_3(v_3,v_1)
 
 ### Worst-Case Optimal Join Algorithms
 
-![02](images/mjoin02.png)
+![p02](images/mjoin02.png)
 
 1. 在给定的一次递归 $i$ 内，首先区分出包含该 $v_i$ 属性的表加入集合 $R_{join}$ ，而不包含的则加入集合 $R_{other}$
 
@@ -103,7 +103,7 @@ Q_\Delta = R_1(v_1,v_2) \Join R_2(v_2,v_3) \Join R_3(v_3,v_1)
 
 当有散列冲突时，即例如图中的`h2(0) == h2(3)`，等到最后生成连接结果时通过额外判断连接条件来过滤，即**冲突处理被延迟**，从而换取更简洁的数据结构和中间流程
 
-![03](images/mjoin03.png)
+![p03](images/mjoin03.png)
 
 实际实现中还有额外的两点优化：
 
@@ -112,13 +112,13 @@ Q_\Delta = R_1(v_1,v_2) \Join R_2(v_2,v_3) \Join R_3(v_3,v_1)
 - **lazy child expansion**
   对于连接来说，可能大部分低级别的hash table从来不会被访问到（在其之上的值不满足连接条件），因此在build阶段可以**推迟这些低级别hash table的构建**，仅在需要时再展开，即lazy child expansion
 
-![06](images/mjoin06.png)
+![p06](images/mjoin06.png)
 
 ### Build Phase
 
 在构建阶段，hash trie会对查询 $Q$ 的每个输入关系 $R_j$ 都构建相应的散列表，算法就是**自上而下递归构造每个属性的散列表**，最底层的叶节点就是所有值
 
-![04](images/mjoin04.png)
+![p04](images/mjoin04.png)
 
 ### Probe Phase
 
@@ -127,7 +127,7 @@ Q_\Delta = R_1(v_1,v_2) \Join R_2(v_2,v_3) \Join R_3(v_3,v_1)
 - 采用hash trie结构可以加速第2步集合求交，即下述流程7-9行
 - 散列冲突的处理本身需要对比完整的tuple，在该算法中被延迟到最后输出结果时double check连接条件，即下述流程第18行
 
-![05](images/mjoin05.png)
+![p05](images/mjoin05.png)
 
 ## Optimizing Hybrid Query Plans
 
@@ -137,11 +137,11 @@ Q_\Delta = R_1(v_1,v_2) \Join R_2(v_2,v_3) \Join R_3(v_3,v_1)
 - 参与多连接的表数量
 - 仅inner joins with equality predicates会被考虑优化
 
-![07](images/mjoin07.png)
+![p07](images/mjoin07.png)
 
 ## Experiments
 
-![08](images/mjoin08.png)
+![p08](images/mjoin08.png)
 
 并且优化器在测试中很大概率能给出正确的优化建议（是否选用WCOJ）：
 

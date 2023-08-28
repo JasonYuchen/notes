@@ -14,7 +14,7 @@
 - **分离式 disaggregation**
   进一步解耦计算和内存资源，使得处于通过高速网络连接的多个数据中心上的节点能够更加高效的利用资源，实现动态扩容缩容，不同的资源节点可以更高效的实现容灾恢复，避免资源耦合带来的伪共享问题
 
-![01](images/polardb01.png)
+![p01](images/polardb01.png)
 
 ## 2 Background
 
@@ -26,7 +26,7 @@ PolarDB是一个采用共享存储架构的云原生数据库，从MySQL的基�
 
 PolarFS是一个持久化、原子、可扩展的分布式存储服务，存储的数据会分片成10GB的数据块chunk，每个卷volume支持动态扩容至最多10000块数据，即100TB数据，每个数据块采用**Parallel Raft**（TODO: ）算法达成三副本共识，RW节点和RO节点通过redo logs和LSN来协调一致性，一个事务的流程如下：
 
-![02](images/polardb02.png)
+![p02](images/polardb02.png)
 
 1. 事务准备提交
 2. RW节点刷写所有redo log记录到PolarFS中
@@ -45,7 +45,7 @@ PolarFS是一个持久化、原子、可扩展的分布式存储服务，存储�
 
 在分离式的数据中心，计算节点、内存节点、存储节点相互通过高速网络连接，并且采用了RDMA技术
 
-![03](images/polardb03.png)
+![p03](images/polardb03.png)
 
 ### 2.3 Serverless Databases
 
@@ -105,7 +105,7 @@ PolarFS是一个持久化、原子、可扩展的分布式存储服务，存储�
 
 PolarDB Serverless与[PolarDB的事务流程](#21-polardb)不同，后者的RO节点必须通过重放redo logs来重建pages而不能直接访问RW节点的缓存，在PolarDB Serverless中RW节点写回远端内存的页数据可以直接被RO节点访问，但是由于节点私有了本地缓存以及共享远端内存，**缓存一致性必须保证**
 
-![04](images/polardb04.png)
+![p04](images/polardb04.png)
 
 PolarDB Serverless通过**缓存失效cache invalidation**策略来保证缓存一致性：
 
@@ -161,7 +161,7 @@ CTS日志是一个环形数组，循环记录了最近的一批读写事务的`c
 
 PolarFS将数据库的log和pages分别存储（**log chunk和page chunk**），前端数据库实例的redo log首先追加到log chunks，随后再**异步发送给page chunks并持续更新pages**（发送给page chunk leader并通过ParallelRaft广播给所有page chunk replicas，由于**ParallelRaft可以确保page chunks的一致性**，因此不再需要Aurora中的gossip协议来保证一致）
 
-![05](images/polardb05.png)
+![p05](images/polardb05.png)
 
 1. 在RW节点提交事务前，首先需要刷写redo log到log chunks，当同步**写入三个log chunk replicas之后就可以提交事务**
 2. RW节点根据涉及到的page不同，将redo log进行分区
@@ -253,11 +253,11 @@ PolarDB Serverless采用[ARIES](https://github.com/JasonYuchen/notes/blob/master
 
 ### 6.2 Elasticity of the Disaggregated Memory
 
-![08](images/polardb08.png)
+![p08](images/polardb08.png)
 
 ### 6.3 Fast Failover
 
-![09](images/polardb09.png)
+![p09](images/polardb09.png)
 
 不同的优化级别下的容灾：
 
@@ -270,25 +270,25 @@ PolarDB Serverless采用[ARIES](https://github.com/JasonYuchen/notes/blob/master
 
 - 整体性能与PolarDB对比
 
-  ![10](images/polardb10.png)
+  ![p10](images/polardb10.png)
 
 - Effect of local memory size
 
-  ![11](images/polardb11.png)
+  ![p11](images/polardb11.png)
 
-  ![12](images/polardb12.png)
+  ![p12](images/polardb12.png)
 
 - Effect of remote memory size
 
-  ![13](images/polardb13.png)
+  ![p13](images/polardb13.png)
 
 - Effect of [optimistic locking](#41-optimistic-locking)
 
-  ![14](images/polardb14.png)
+  ![p14](images/polardb14.png)
 
 - Effect of [prefetching](#42-index-awared-prefetching)
 
-  ![15](images/polardb15.png)
+  ![p15](images/polardb15.png)
 
 ## 7 Related Work
 

@@ -15,7 +15,7 @@
 
 > Even exhaustive join order enumeration and a perfectly accurate cost model are worthless **unless the cardinality estimates are (roughly) correct.**
 
-![03](images/opt03.png)
+![p03](images/opt03.png)
 
 - 对于多个连接，大部分系统都会显著低估cardinality，且连接越多越显著
 - 再好的优化器和cost model也依赖合理的estimates
@@ -44,7 +44,7 @@
 - 极少量的查询在采用不准确的estimates时会直接超时，即`>100`，部分是因为当PostgreSQL发现estimated cardinality极低时会**引入nested loop join（非index nested loop join），这是纯粹只看cost、风险极大的优化选择**
 - 少部分的查询处于较慢区间，即`[10,100)`，这是因为涉及到了hash join，而PostgreSQL 9.4及以前会采用estimated cardinality来确定内存hash table的大小，**过低的估计值导致了hash table较小，引发了大量的散列冲突**，并形成低性能的long collision chains（9.5及以上的版本引入了rehash动态扩容散列表）
 
-![06](images/opt06.png)
+![p06](images/opt06.png)
 
 - **考虑estimate存在误差以及算法有渐进复杂度**，纯粹基于cost很容易导致极差的方案
 - **选择更稳定的算法**，而不是偶尔提供很大优势的算法
@@ -61,7 +61,7 @@
 
 前述只考虑了主键索引，当**引入外键索引后优化器的工作变得更加困难**（并不是加入外键索引使得性能变差）：
 
-![07](images/opt07.png)
+![p07](images/opt07.png)
 
 ### Join-Crossing Correlations
 
@@ -90,7 +90,7 @@
 
 cost function最重要的目标就是预测cost和真实cost正相关，同样采用PostgreSQL的estimates和true cardinality来测试不同cost model的表现，如下图(a-b)：
 
-![08](images/opt08.png)
+![p08](images/opt08.png)
 
 ### Tuning the Cost Model for Main Memory
 
@@ -130,7 +130,7 @@ PostgreSQL cost model非常复杂，考虑了极多因素，本文针对main-mem
 
 采用true cardinalities来计算不同连接顺序的查询代价，并对比最优方案的代价（可能会包括Bushy Tree的方案）：
 
-![10](images/opt10.png)
+![p10](images/opt10.png)
 
 - ZigZag形式的连接在大多数情况下都能有相当不错的效果
 
@@ -140,7 +140,7 @@ PostgreSQL cost model非常复杂，考虑了极多因素，本文针对main-mem
 - Quickpick-1000作为启发式引擎，会给出1000个随机方案中代价最低的方案，也可能会产生bushy trees
 - Greedy Operator Ordering也是启发式引擎，他采取类似*最小生成树MST*的方式来生成连接顺序，即选取基础表，随后不断选择最低代价的连接来构建整个树，因此可能会产生bushy trees
 
-![11](images/opt11.png)
+![p11](images/opt11.png)
 
 - 即使输入不准确的estimates，**依然值得采用类似DP的方式穷举搜索空间**，其整体表现好于启发式引擎
 - GOO和Quickpick-1000很难感知到索引，因此更适合索引少的情况（此时没有索引，整个空间里好的执行计划更多，更容易被启发式引擎搜索到）

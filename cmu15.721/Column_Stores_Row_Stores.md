@@ -73,4 +73,4 @@ design?
 
 这里仅摘了前述四种优化的作用效果图
 
-![07](images/rowcolumn07.png)
+![p07](images/rowcolumn07.png)

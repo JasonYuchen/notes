@@ -11,7 +11,7 @@ DynamoDB拥有以下特性：
 - **high availability**: automatically replication across availability zones for regular tables, geo-replication across regions for global tables
 - **flexible use cases**: key-value or document data model with strong or eventual consistency
 
-![0](images/dynamodb0.png)
+![p0](images/dynamodb0.png)
 
 ## 2 History
 
@@ -39,9 +39,9 @@ DynamoDB的表由item组成，每个item由一组attributes，每个item由一�
 
 一个复制组replication group的节点包含WAL日志和B树，称为storage replicas，但也可以**仅包含WAL日志用于提升整体的可用性availability和可靠性durability**，称为log replicas（类似PAXOS中的eacceptors）
 
-![1](images/dynamodb1.png)
+![p1](images/dynamodb1.png)
 
-![2](images/dynamodb2.png)
+![p2](images/dynamodb2.png)
 
 ## 4 Journey from provisioned to on-demand
 
@@ -173,4 +173,4 @@ DynamoDB的**storage节点是partition replicas实际情况的single source of t
 
 系统的吞吐量范围内，吞吐量变化不会影响读写性能：
 
-![3](images/dynamodb3.png)
+![p3](images/dynamodb3.png)

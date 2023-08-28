@@ -24,7 +24,7 @@ Dremel走向**存算分离**，对[Google File System, GFS](../mit6.824/GFS.md)�
 
 原先Dremel完全不支持join，后续通过*shuffle*算子（受[MapReduce](../mit6.824/MapReduce.md)启发）实现了分布式连接的支持，由于采用计算节点的内存和磁盘存储中间结果会显著限制可扩展性，Dremel引入了**基于Colossus的shuffle infrastructure service**，改 该服务有独立的内存和磁盘系统，从而实现了内存的分离
 
-![02](images/dremel02.png)
+![p02](images/dremel02.png)
 
 ### Observation
 
@@ -71,18 +71,18 @@ Dremel走向**存算分离**，对[Google File System, GFS](../mit6.824/GFS.md)�
 
 - **Centralized Scheduling**: 中心化的调度层，基于整个集群的状态进行任务调度，从而达到更高的整体利用率和任务的隔离性
 
-  ![03](images/dremel03.png)
+  ![p03](images/dremel03.png)
 
 - **Shuffle Persistence Layer**: 类似MapReduce的shuffle操作，Dremel也在*Shuffle*过程中加入了持久化操作，从而让Shuffle成为了checkpoint节点，Dremel就可以利用checkpoint的特性，**允许在查询的多个阶段间暂停任务**（后续可以从checkpoint恢复执行），抢占worker用于其他查询，即**更细粒度的任务调度、挂起、恢复**
 - **Flexible Execution DAGs**
 
-  ![04](images/dremel04.png)
+  ![p04](images/dremel04.png)
 
 - **Dynamic Query Execution**: 预先估计执行情况（基于estimates）非常困难，误差会导致原先的最优计划可能变为较差的计划，Dremel允许在**查询执行过程中根据真实数据情况、执行情况动态调整查询计划**，基于Shuffle持久化层，例如Dremel一开始选择hash join，首先对join两侧的表执行shuffle，假如发现其中一侧很快就结束了shuffling，则Dremel会选择直接取消另一侧的shuffle并转向使用broadcast join（因为一侧数据非常少，broadcasting该侧的代价很低）
 
 ## Columnar Storage for Nested Data
 
-![05](images/dremel05.png)
+![p05](images/dremel05.png)
 
 - **repetition, definition levels** (figure 6, e.g. Dremel, Parquet)
   - repetition level代表了重复的值是否是跟随前值连续，还是单独新开始（即判断所属于的repeated字段，若有变化见下例，其值指向了repeated有变化的属性），因此对于每一条新的数据总是0
@@ -115,7 +115,7 @@ Dremel走向**存算分离**，对[Google File System, GFS](../mit6.824/GFS.md)�
 
 Capacitor会采用dictionary、run-length encoding等标准方式对数据进行压缩处理，而RLE对列数据是否有序非常敏感，因此Capacitor会尝试进行**重排序，将相关的数据尽可能连续存储**以提高RLE的表现，但求解最优顺序是NPC问题，Capacitor采用采样配合启发式算法来给出大致的较优顺序
 
-![10](images/dremel10.png)
+![p10](images/dremel10.png)
 
 ### More complex schemas
 

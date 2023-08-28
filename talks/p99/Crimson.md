@@ -10,7 +10,7 @@
 
 随着存储设备的发展，单次IO的延迟越来越小，对CPU的压力越来越大
 
-![1](images/CR01.png)
+![p1](images/CR01.png)
 
 ## Ceph Rados
 
@@ -31,11 +31,11 @@
 - **PG State**：数据状态管理模块，用于数据存放、管理、恢复，确保数据的一致性，内部采用线程池的机制
 - **BlueStore**：数据存储引擎模块，与存储设备交互，以KV的形式存储所有数据，内部采用线程池的机制
 
-![2](images/CR02.png)
+![p2](images/CR02.png)
 
 可以看出传统OSD的线程模型大量采用了线程池的设计，并且**锁占用了绝大多数的时间**：
 
-![3](images/CR03.png)
+![p3](images/CR03.png)
 
 ## Crimson
 
@@ -51,9 +51,9 @@
   - Persistent Memory
   - Fast NVME
 
-![4](images/CR04.png)
+![p4](images/CR04.png)
 
-![5](images/CR05.png)
+![p5](images/CR05.png)
 
 ## Roadmap
 

@@ -10,7 +10,7 @@ MonetDB/MIL采用了**column-at-a-time**的执行模型，因此不会受到上�
 
 由于摩尔定律，CPU的速度增长的极快（论文05年及之前的十年发展如下图1，而实际上在更近的现在单核性能和频率已经达到瓶颈，如下图2）
 
-![01](images/monet01.png)
+![p01](images/monet01.png)
 
 ![ref](../seastar/images/sn3.png)
 
@@ -32,7 +32,7 @@ F(A[0]), F(A[1]), F(A[2]), G(A[0]), G(A[1]), G(A[2]), F(A[3]), ...
 - **branch version**: 采用分支来求值谓词，由于分支预测的失败率在选择度50的时候最高（50%预测失败）因此AthlonMP处理器此时性能最差，但由于编译器直接将代码优化成了硬件预测代码，从而Itanium2处理器性能始终最好
 - **predicated version**: 改写成bool变量的方式来求值谓词，由于额外的计算使得整体性能比branch version要弱一些
 
-![02](images/monet02.png)
+![p02](images/monet02.png)
 
 另外**高速缓存**和**内存**也对整体性能有显著影响，高速缓存命中率影响了内存访存次数，内存访存就受到了内存带宽和延迟的影响，因此一下方式都能显著提升系统整体性能：
 
@@ -57,7 +57,7 @@ F(A[0]), F(A[1]), F(A[2]), G(A[0]), G(A[1]), G(A[2]), F(A[3]), ...
 
 Monext/X100的架构和整体设计思路如下：
 
-![03](images/monet03.png)
+![p03](images/monet03.png)
 
 - **Disk**: 提供高效的顺序数据访问，为了最大化减轻磁盘带宽压力，底层数据文件采用**垂直分块vertically fragmented data layout**，部分情况下还会利用轻量的数据压缩
 - **RAM**: 所有对RAM的访问都采用**显式的memoty-to-cache、cache-to-memory例程**（包含了大量平台相关的优化，例如SSE prefetching、汇编优化等），磁盘上的垂直分块（可能带有压缩）的数据也同样使用在内存中
@@ -77,7 +77,7 @@ Aggr(
   [ sum_disc_price = sum(discountprice) ])
 ```
 
-![04](images/monet04.png)
+![p04](images/monet04.png)
 
 - 执行流程是**Volcano-like迭代式，迭代粒度是单个vector**（例如1000个值），`Scan`算子从存储层Monet BATs以**vector-at-a-time**的形式读取数据
 - `Select`算子会构造出一个**选择向量selection-vector**，包含所有符合谓词的数据位置
@@ -113,8 +113,8 @@ map_plus_double_col_double_col(
 
 MonetDB/X100将所有表数据都以vertically fragmented的形式存储（存储的各种形式和优缺点可以参考[Lecture 03](03.Storage_Models_Data_Layout.md)），存储形式及更新数据的流程如下图：
 
-![05](images/monet05.png)
+![p05](images/monet05.png)
 
 ## TPC-H Experiments
 
-![06](images/monet06.png)
+![p06](images/monet06.png)

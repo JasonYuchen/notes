@@ -28,7 +28,7 @@ Snowflake通过**存算分离**的方式来应对上述问题
 
 ## Architecture
 
-![01](images/sf01.png)
+![p01](images/sf01.png)
 
 - **Data Storage**: 采用云服务的对象存储服务，例如AWS S3，存储服务本身可独立弹性扩容并且高可用，自研/自维护的存储层（例如基于HDFS）难以媲美云服务的存储服务
 - **Virtual Warehouses**: 采用云服务的弹性计算实例，例如AWS EC2，进行计算服务，并被抽象为Virtual Warehouse, VW的概念，用户付费使用不同规模的VM节点，这些节点弹性按需创建、无状态都从数据存储层读取数据、执行的查询相互隔离不会受其他VM节点的影响
@@ -44,9 +44,9 @@ Snowflake通过**存算分离**的方式来应对上述问题
 - **Pure SaaS**
 - **Continuous Availability**
   
-  ![02](images/sf02.png)
+  ![p02](images/sf02.png)
 
-  ![03](images/sf03.png)
+  ![p03](images/sf03.png)
 
   升级过程中也是灰度进行，所有新查询都由新版本的程序进行处理，而**旧版本不再接受请求，一旦当前任务处理结束即可以被下线**，过程中新旧程序共享状态（Metadata Storage，Cache）
 - **Semi-Structured and Schema-Less Data**
@@ -54,9 +54,9 @@ Snowflake通过**存算分离**的方式来应对上述问题
   采用多版本并发控制MVCC实现快照隔离SI，当一个文件被删除时还会被额外保存一段时间，从而允许查询（在一个查询内同时）访问已被删除的数据和最新的数据
 - **Securtity**
 
-  ![04](images/sf04.png)
+  ![p04](images/sf04.png)
 
-  ![05](images/sf05.png)
+  ![p05](images/sf05.png)
 
   - **Key Rotation**: 周期性创建新的key用于加密，而旧key就只能用于解密数据，即将key从active转为retired，例如上图`k1v1`变更为`k1v2`和`k1v3`用于不同的文件加密
   - **Rekeying**: 采用新key来重新加密旧的数据，从而旧key可以彻底被移除，即将key从retired转为destroyed，例如上图采用`k2v1`重新加密所有`k1v1`的数据，随后将`k1v1`删除

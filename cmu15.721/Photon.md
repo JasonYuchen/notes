@@ -13,7 +13,7 @@ Photon的两大挑战/目标：
 - **Automatic Data Management**: 用户可以选择将数据迁移到Delta Lake上（开源的ACID table storage layer）
 - **Elastic Execution Layer**: Photon作为执行层的核心处理线程，以单线程的方式执行一个分区的数据
 
-  ![01](images/photon01.png)
+  ![p01](images/photon01.png)
 
 ### The Databricks Runtime
 
@@ -90,6 +90,6 @@ Photon是C++实现的执行引擎，作为共享库由DBR链接并调用，一�
 - How does Photon perform end-to-end vs. our existing engine?
 - What is the impact of tactical optimizations like adaptivity?
 
-![04](images/photon04.png)
+![p04](images/photon04.png)
 
-![08](images/photon08.png)
+![p08](images/photon08.png)

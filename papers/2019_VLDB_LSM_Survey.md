@@ -24,7 +24,7 @@ LSM树通过设计了一个**合并过程merge process**来解决上述问题，
 - 在稳定的工作负载下，当level的数量固定时，**写性能在所有相邻的组成部分其大小比例相等时`Ti=|Ci+1|/|Ci|`达到最佳**（这影响了所有后续LSM树的设计与实现）
 - 与原始LSM树同时期有另一种合并策略**stepped-merge policy**，其设计为一个LSM树由多个层构成，每一层`L`都由`T`个组成部分，当该层`L`充满时，相应的所有`T`个组成部分一起被合并为单个组成部分并作为`L+1`层的一个组成部分，也被称为**tiering merge policy**（被广泛使用在现在的LSM树实现中）
 
-![3](images/LSM_survey3.png)
+![p3](images/LSM_survey3.png)
 
 ### 2.2 Today's LSM-trees
 
@@ -59,7 +59,7 @@ LSM树通过设计了一个**合并过程merge process**来解决上述问题，
 
   图4中可以看出**level 0的组成部分并没有分区**，这些内存组成部分是直接刷写到磁盘上的，当需要将SSTable从`L`层合并到`L+1`层时所有`L+1`层中与该SSTable存在key范围重叠的SSTables一起参与合并，如图中的`0-15`和`16-32`需要与`0-30`合并，并且合并后原先的`0-30`就会被垃圾回收，**由于触发合并时任意一个`L`层的SSTable都可以被选择，因此可以有不同的选择算法**，LevelDB采用简单的round-robin策略来减小总的写入成本
 
-  ![4](images/LSM_survey4.png)
+  ![p4](images/LSM_survey4.png)
 
   tiering merge policy同样可以使用分区，但是问题在于**tiering下一层可以有多个组成部分并且其key范围存在重叠**，从而当分区后可能导致多个存在重叠范围的SSTables，而leveling merge polcy中每一层只有一个组成部分可以简单分区成互不重叠的SSTables，此时如上图中的设计可以引入**垂直分组vertical grouping**或**水平分组horizontal grouping**对SSTables进行管理以确保正确的合并
 
@@ -134,7 +134,7 @@ LSM树有诸多缺点，也是诸多研究希望改善的方面：
 - **自动调优 Auto-Tuning**：由RUM猜想可知，不可能存在同时read-optimal、write-optimal、space-optimal的做法，因此LSM树应该根据需求调整参数以适应相应的访问方式，同时由于可调节的参数非常多，自适应调优是一种更好的方式
 - **二级索引 Secondary Indexing**：LSM树只提供了针对key（索引）的操作，通常业务往往也需要能够高效处理non-key的属性，即需要二级索引
 
-![5](images/LSM_survey5.png)
+![p5](images/LSM_survey5.png)
 
 ### 3.2 Reducing Write Amplification
 
@@ -168,7 +168,7 @@ LSM树有诸多缺点，也是诸多研究希望改善的方面：
 
 如下图，当需要合并level L的SSTables并一直合并到level L+K时，**跳过中间的逐层合并，直接加入到level L+K的缓冲区中**，并在后续合并时参与到合并过程
 
-![6](images/LSM_survey6.png)
+![p6](images/LSM_survey6.png)
 
 为了确保正确性，**能够被直接从level L下推到level L+K的keys不能出现在level L+1到level L+K-1中，这可以通过中间层的bloom filter快速判断**，并且写入level L+K缓冲区时会通过WAL来确保可靠
 
@@ -201,7 +201,7 @@ TRIAD还会直接利用被废弃的旧事务日志文件作为一个磁盘组成
 
 因此当page 1第一阶段完成进入第二阶段时，就可以开始page 2的第一阶段，而不必等到page 1完全结束，从而构建处理流水线如下图（实际的系统中如RocksDB已经**通过read-ahead和write-behind实现了某种形式的流水线**）：
 
-![7](images/LSM_survey7.png)
+![p7](images/LSM_survey7.png)
 
 #### 3.3.2 Reducing Buffer Cache Misses
 
@@ -217,7 +217,7 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 - 仅对工作负载倾斜的情况比较有效，此时少量key被高频访问，假如缓冲区可以有效避免缓存未命中
 - 对于冷数据而言反而引入了查询负担
 
-![8](images/LSM_survey8.png)
+![p8](images/LSM_survey8.png)
 
 #### 3.3.3 Minimizing Write Stalls
 
@@ -240,7 +240,7 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 
 基于FloDB的缺陷，**Accordion**采用了多层设计来管理大的内存组成部分，顶层是一个内存中的较小可变组成部分来处理写入，当此部分充满时就会直接与同样处于内存中的下一层合并（而不是刷写到磁盘上），并且其下还会有一层内存中的组成部分，从而实现**内存中的高效合并**，整体来说类似于将磁盘上的前几层移入内存
 
-![9](images/LSM_survey9.png)
+![p9](images/LSM_survey9.png)
 
 #### 3.4.2 Multi-Core
 
@@ -257,7 +257,7 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 
   在每一层的组成部分上，FD-tree额外存储了**屏障指针fence pointer**来指向下一层的每个数据页，当在level 0完成二分搜索定位后就可以通过屏障指针直接访问磁盘上level 1的数据页（这个过程利用了随机I/O），并可以继续访问所有层的数据
 
-  ![10](images/LSM_survey10.png)
+  ![p10](images/LSM_survey10.png)
 
   屏障指针的设计使**合并操作更为复杂**，当level L合并入level L+1时所有level 0到level L-1也必须合并来重建所有的屏障指针，即**fractional cascading**，确保指向下一层正确的数据页，另一方面由于bloom filter的缺失，**查询不存在的key时需要访问磁盘**上的数据，因此实际工程中的LSM树依然更偏爱bloom filter
 - **FD+tree**
@@ -271,7 +271,7 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 
   WiscKey直接将key-value存入仅追加的日志文件，而**LSM树就相当于在日志文件上构建的索引，存储key-location**，但缺点在于**范围查询的代价显著提高，所有的value不再排序**，因此范围查询通常需要扫描全部数据
 
-  ![11](images/LSM_survey11.png)
+  ![p11](images/LSM_survey11.png)
 
   为了避免日志无限增长，WiscKey中采用**三阶段的垃圾回收**进行控制日志体积：
   1. 从头扫描日志到将要被截断的位置（上图中的tail部分）并校验此中包含的所有key-value，每个key通过LSM树查询到相应的location（被证明这个**随机点查询是垃圾回收的瓶颈**）确定是否与扫描的位置匹配，匹配说明未被修改过，属于有效记录
@@ -314,7 +314,7 @@ Log-Structured buffered Merge tree, **LSbM-tree**提出了暂缓删除被合并�
 - **小数据 small data**
   **LSM-trie**是一种基于LSM的散列索引，支持管理大量key-value对很小的数据，其基本结构采用了partitioned tiering设计，`TODO`
 
-  ![12](images/LSM_survey12.png)
+  ![p12](images/LSM_survey12.png)
 
   其主要的设计场景为管理**海量key-value对**（如果采用常规的LSM树则即使是元数据、索引或bloom filter的数据都无法充分缓存）并只需要使用点查询（大量使用散列）
 
@@ -366,7 +366,7 @@ LSM树本身相当于只有一个主键索引，而现实系统中的查询往�
 - 一个主键索引primary index及多个二级索引secondary indexes
 - 主键索引直接记录数据，**二级索引记录主键索引的key**
 
-![13](images/LSM_survey13.png)
+![p13](images/LSM_survey13.png)
 
 #### 3.7.1 Index Structures
 

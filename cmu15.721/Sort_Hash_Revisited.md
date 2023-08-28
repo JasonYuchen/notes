@@ -85,7 +85,7 @@ out1 -> out8 sorted
   3. out-of-cache sorting: 常规合并操作直到数据全部有序
 - **Balancing Computation and Bandwidth**
 
-![01](images/sort01.png)
+![p01](images/sort01.png)
 
 ## Hash-Based Joins
 
@@ -100,10 +100,10 @@ out1 -> out8 sorted
 - Radix Hash Join – **radix**
 - No-Partitioning Hash Join – **n-part**
 
-![02](images/sort02.png)
+![p02](images/sort02.png)
 
-![03](images/sort03.png)
+![p03](images/sort03.png)
 
-![04](images/sort04.png)
+![p04](images/sort04.png)
 
 > **Nevertheless, all the results clearly indicate that hash joins are still faster than sort-merge join counterparts.**

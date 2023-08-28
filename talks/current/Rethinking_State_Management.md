@@ -18,7 +18,7 @@
 
 根据流数据系统的发展历史，可以简单分为三个阶段：单机时代、大数据时代、云时代
 
-![01](images/sm01.png)
+![p01](images/sm01.png)
 
 ### Single Node Era
 
@@ -56,20 +56,20 @@
 
 可以采用**LSM**类型的数据结构来充分理由这类多级存储，将实时流数据**直接由EC2来接收并处理**，随后**compaction到EBS**上，再进一步**compaction到S3**上
 
-![02](images/sm02.png)
+![p02](images/sm02.png)
 
 - **small state**：则两种架构差别不大，存算分离架构中cache实际上就是完整的small state
 - **big state**：则存算耦合架构中需要为这种big state提供足够强大的计算节点，代价非常高
 
 ## Failure Recovery
 
-![03](images/sm03.png)
+![p03](images/sm03.png)
 
 对于存算分离架构，由于计算节点本身只拥有cache，因此直接启动新节点进行容灾并读取存储节点的state即可，故障恢复时间可以大大缩短
 
 ## Elastic Scaling
 
-![04](images/sm04.png)
+![p04](images/sm04.png)
 
 - 存算耦合架构：对某个**过载的节点进行进一步的sharding**，从而获得更多的分区并用于新启动的节点
 - 存算分离架构：唯一的扩容原因仅仅是计算能力不足（存储由S3等自动扩容），此时扩容时并**不需要对某个分区数据进行进一步sharding**（how?）

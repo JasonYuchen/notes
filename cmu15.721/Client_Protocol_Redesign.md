@@ -4,7 +4,7 @@
 
 - **RSS**: Result Set Serialization
 
-![01](images/net01.png)
+![p01](images/net01.png)
 
 ## Protocol Design Space
 
@@ -15,7 +15,7 @@
 - **Chunk Size**
   采用分块、块内column-wise的协议下，每块的大小在约1MB左右较优，对于块内的任意数据也仅需缓存整个块即可，对client来说可行
 
-  ![02](images/net02.png)
+  ![p02](images/net02.png)
 
 - **Data Compression**
   数据压缩可以减少网络传输的时间，但压缩/解压需要耗费CPU时间，因此压缩与否也是基于网络、CPU等硬件资源的权衡，压缩也分为通用压缩算法和针对特定情况（例如column-wise）的压缩算法，[见此](05.Database_Compression.md)

@@ -8,7 +8,7 @@
 
 本文中采取了**自适应的morsel-driven查询执行框架**，用于内存数据库HyPer，从而充分利用现代多核的并发，以及相应的NUMA特征，其基本思路如下：
 
-![01](images/morsel01.png)
+![p01](images/morsel01.png)
 
 - 并行通过在**每个线程上执行一条pipeline**（图中红色和蓝色代表两个pipelines）来实现
 - 每个pipeline负责执行一个morsel数据块，数据在NUMA-local内存，且处理结果也写入NUMA-local内存
@@ -29,7 +29,7 @@
 2. 扫描、过滤、构建`HT(S)`
 3. 扫描、过滤`R`并探测`HT(T), HT(S)`完成连接输出结果
 
-![02](images/morsel02.png)
+![p02](images/morsel02.png)
 
 每条pipeline执行前，都会获得分配一块临时存储用于存储中间数据，随后若后续还有下一条pipeline需要继续执行处理，则**临时存储会被逻辑上重新分区为均匀的morsel数据块**，不重新分区很容易出现数据倾斜，每条pipeline的实际工作线程数不会超过硬件支持的最大线程数，从而最大程度利用并发性能以及减少数据同步开销
 
@@ -38,11 +38,11 @@
 1. 首先扫描数据并在NUMA-local的内存中写入结果
 2. 随后再依然由相应的线程扫描中间结果，并在全局散列表中插入指针构建`HT(T)`，这也是为了尽可能**保持后续pipeline的线程在探测散列表时也仅访问自己NUMA-local的内存**，而持有指针的**散列表广播到所有NUMA节点**的内存中
 
-![03](images/morsel03.png)
+![p03](images/morsel03.png)
 
 第三条pipeline开始时原理也相同，以morsel数据块的形式多个线程并发去NUMA-local的散列表中探测并完成连接，输出结果到NUMA-local的内存中以待后续处理
 
-![04](images/morsel04.png)
+![p04](images/morsel04.png)
 
 ## Dispatcher: Scheduling Parallel Pipeline Tasks
 
@@ -52,7 +52,7 @@
 - 考虑到具体查询的**弹性**
 - **负载均衡**确保所有参与的线程都基本同时结束工作，从而避免单个过慢线程影响整个查询的延迟
 
-![05](images/morsel05.png)
+![p05](images/morsel05.png)
 
 ### Elasticity
 
@@ -71,7 +71,7 @@
 
 过小的morsel可能会导致调度开销上升，同时数据竞争的情况上升（在非常多线程、非常高频率的竞争下，即使是无锁数据结构也会有显著的性能劣化），因此需要有一个相对较大的morsel的尺寸
 
-![06](images/morsel06.png)
+![p06](images/morsel06.png)
 
 ## Parallel Operator Details
 
@@ -85,12 +85,12 @@
 
 ### Grouping / Aggregation
 
-![08](images/morsel08.png)
+![p08](images/morsel08.png)
 
-![09](images/morsel09.png)
+![p09](images/morsel09.png)
 
 ### Sorting
 
 ## Evaluation
 
-![11](images/morsel11.png)
+![p11](images/morsel11.png)

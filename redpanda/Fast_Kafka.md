@@ -8,11 +8,11 @@
 
 - safe mode，两者都是`acks=all`且每一批数据都`fsync()`
 
-  ![01](images/redpanda01.png)
+  ![p01](images/redpanda01.png)
 
 - in-memory replication using page cache without explicit flushes，而Redpanda依然是safe mode
   
-  ![02](images/redpanda02.png)
+  ![p02](images/redpanda02.png)
 
 *个人意见：实际部署Kafka时不一定会采用完全安全的模式，甚至可能不会选择`acks=all`*
 
@@ -39,12 +39,12 @@
 - **Adaptive fallocation**
   自适应的文件空间预分配，从而尽可能避免每一次写入都需要修改全局的内核文件元信息，而更新元信息是全局操作存在竞争的可能性，这种**预分配减少了更新全局元数据的频率，从而降低了数据竞争的可能性**
 
-  ![03](images/redpanda03.png)
+  ![p03](images/redpanda03.png)
   
 - **Out-of-order DMA writes**
   DMA操作需要内存对齐，Redpanda每个线程都会维护一组**已经完成内存对齐的buffer chunks共享于不同文件的磁盘读写**，当需要读写磁盘时就会从内存缓存池中申请所需的buffer chunks，由于其已经对齐，因此可以**乱序并发提交给磁盘**，充分利用现代NVMe磁盘的高并发特性，这种设计之下越是活跃的topic partition，就能申请到越多的buffer chunks从而能够应对短时的峰值流量
 
-  ![04](images/redpanda04.svg)
+  ![p04](images/redpanda04.svg)
 
   `TODO`
   
@@ -76,7 +76,7 @@
 - **Raft read-ahead op dispatcher**
   在解析Raft操作时通过人为的毫秒级延迟Raft的写入操作，解析完更多的Raft操作从而可以在一次`fsync()`中包含更多的写入，如下图，确定了图中范围内的全部操作后才开始写入，而不是每解析一个写入都立即写入并同步，此时优化后只需要一次同步（*AKA批量处理？*）
   
-  ![05](images/redpanda05.svg)
+  ![p05](images/redpanda05.svg)
 
 - **No Virtual Memory**
   `TODO` [Seastar Allocator & Fragmentation Analysis](https://github.com/redpanda-data/redpanda/blob/dev/docs/rfcs/20201208_fragmentation.md)

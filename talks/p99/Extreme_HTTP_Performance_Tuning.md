@@ -22,7 +22,7 @@
 3. 更高效的系统调用`send/recv`替换`write/read`：5%
 4. libthread采用线程池进行dns解析，而对于server端程序来说是不必要的，移除这部分额外开销：3%
 
-![1](images/http01.png)
+![p1](images/http01.png)
 
 ## Disabling Security Features
 
@@ -50,7 +50,7 @@
 
 停用推断执行安全补丁能整体提升性能，因此在火焰图中没有明显提升的部分，而系统调用监听和网络过滤的停用能够明显看出（途中粉红色部分）
 
-![2](images/http02.png)
+![p2](images/http02.png)
 
 ## Perfect Locality
 
@@ -67,7 +67,7 @@
 
 显然代表着中断的细高红色部分显著减少，并且在中断可能发生的点之前就已经通过轮询将大量请求处理完成
 
-![3](images/http03.png)
+![p3](images/http03.png)
 
 ## The Case of the Nosy Neighbor
 
@@ -81,13 +81,13 @@
 
 图中可以看出`dev_queue_xmit_nit()`原先占用3%的开销，当`dhclient`被关闭后完全消失
 
-![4](images/http04.png)
+![p4](images/http04.png)
 
 ## The Battle Against the Spin Lock
 
 **Gain 2%, 1.15M Req/s, P9999 338us**
 
-![5](images/http05.png)
+![p5](images/http05.png)
 
 ## This Goes to Twelve
 

@@ -29,7 +29,7 @@ AVX-512的相关指令操作
 
 相比于**标量流水线scalar pipeline**例如HyPer，**向量流水线vector pipeline**最大的不同就是一次性可以使多条数据同时进入流水线，从而影响了控制流，标量流水线保证了每个算子只有一个数据需要处理因此控制流就跟随处理结果，而向量流水线每个算子有多个数据需要处理但**每个数据的控制流并不一定统一**
 
-![01](images/simd01.png)
+![p01](images/simd01.png)
 
 - 初始阶段，第一个scan算子，从而8条SIMD lanes均为活跃状态（绿色）
 - 在后续两个阶段，分别因为select和join算子，lane#2和lane#7的数据不满足条件（X），但并没有走到no match的流程，其他lanes依然是活跃状态
@@ -43,19 +43,19 @@ AVX-512的相关指令操作
 
 扫描操作从内存中连续读取（假如是columnar layout）到向量寄存器中可以如下实现再装填
 
-![02](images/simd02.png)
+![p02](images/simd02.png)
 
 对于连续的读取，通过`SEQUENCE`常量叠加读取位置向量，并且作用`expand`操作所使用的位掩码，就可以轻松获得被填充的新数据对应的Tuple ID，从而使得TID向量于数据向量相匹配
 
-![03](images/simd03.png)
+![p03](images/simd03.png)
 
 ### Register to register
 
 在寄存器相互之间移动数据略微复杂一些，如下，细节过程参考论文原文
 
-![04](images/simd04.png)
+![p04](images/simd04.png)
 
-![05](images/simd05.png)
+![p05](images/simd05.png)
 
 ### Variants
 
@@ -74,7 +74,7 @@ AVX-512的相关指令操作
 
   这种做法相当于粒度更细的buffering需要对控制流精细控制，不但**额外需要记录每个lanes的所有权情况**，而且实际上属于protected状态的lanes等同于不活跃状态，**系统总体的实际利用率反而下降了**
 
-![06](images/simd06.png)
+![p06](images/simd06.png)
 
 不执行再装填、采用Conume everything的再装填、采用Partial consume的再装填这三种**策略并不互斥**，再装填算法本身也有一定的开销，实际系统中完全可以根据具体数据、硬件情况，对不同的算子、不同的执行情况采用不同的策略（*it depends...*），从而来**实现尽可能高的系统整体利用率**
 
@@ -82,4 +82,4 @@ AVX-512的相关指令操作
 
 `SKIP`
 
-![12](images/simd12.png)
+![p12](images/simd12.png)

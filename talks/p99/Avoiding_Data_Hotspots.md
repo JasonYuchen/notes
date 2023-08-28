@@ -28,15 +28,15 @@
 
 ### Hash-based sharding
 
-![01](images/shard01.png)
+![p01](images/shard01.png)
 
-![02](images/shard02.png)
+![p02](images/shard02.png)
 
 **散列分区的优点在于能够将数据更为均匀的分到所有节点上，但是缺点在于对范围查询请求的响应必须所有节点都进行扫描**
 
 ### Range-based sharding
 
-![03](images/shard03.png)
+![p03](images/shard03.png)
 
 **范围分区的优点在于良好的支持范围查询请求，但是缺点在于数据难以均匀的分散到所有节点上，同时对某一个范围内的查询较热时这些请求很可能都需要同一个节点来服务，造成请求热点**
 
@@ -47,7 +47,7 @@
 
   这种方式**仅对范围分区下连续的主键有效**，而对二级索引、物化视图就没有作用
 
-  ![04](images/shard04.png)
+  ![p04](images/shard04.png)
 
 - **Compound keys**
   通过组合键的方式可以将更多维度的信息编码进主键，从而进一步对数据进行分割和分区，避免热点的出现，在Cassandra/ScyllaDB中还有一种**clustering key的策略是根据key的第一个component进行散列分区，而在每个分区内的数据又根据key的第二个component进行排序**，这种模式也被称为**key-key-value系统**（类似**多级分区**模式下的一级散列分区、二级范围分区，多级分区的设计需要对数据的访问模式进行深入的分析）
@@ -97,7 +97,7 @@
 
 参考Kafka的topic和partition设计，对于消息队列来说（假如不要求整个队列严格的FIFO）可以从两个维度进行分区和水平扩容，第一就是**消息的时间戳**（Kafka设计了**分段式日志segmented log**来支持这种时间单调递增的存储场景），第二就是**消息本身的分类即topic**
 
-![05](images/shard05.png)
+![p05](images/shard05.png)
 
 ### Scaling in a data warehouse
 

@@ -9,7 +9,7 @@
 - AQUA层采用**FPGA加速查询执行**
 - **Compilation-as-a-Service**, CaaS层用于缓存优化过的代码生成片段optimized generated code for query fragments，从而被所有用户共享
 
-![01](images/redshift01.png)
+![p01](images/redshift01.png)
 
 Redshift上查询的执行过程如下：
 
@@ -27,7 +27,7 @@ Redshift上查询的执行过程如下：
    - bloom filters
    - prefetching
 
-![02](images/redshift02.png)
+![p02](images/redshift02.png)
 
 ### Introduction to Redshift Code Generation
 
@@ -116,7 +116,7 @@ Advanced Query Accelerator, AQUA作为一个**集群外off-cluster、多租户mu
 
 ### Redshift Managed Storage
 
-![05](images/redshift05.png)
+![p05](images/redshift05.png)
 
 ### Decoupling Metadata from Data
 
@@ -153,7 +153,7 @@ Advanced Query Accelerator, AQUA作为一个**集群外off-cluster、多租户mu
 
 当并发的查询数量增加时，**Concurrency Scaling会自动适配增加的负载**，并路由新的查询请求到增加的计算集群上
 
-![06](images/redshift06.png)
+![p06](images/redshift06.png)
 
 ### Compute Isolation
 
@@ -172,7 +172,7 @@ Advanced Query Accelerator, AQUA作为一个**集群外off-cluster、多租户mu
 
 在对已有的数据应用distribution/sort key时，Redshift允许用户通过console直接使用DDL操作，或者是**在后台周期性的利用负载低谷阶段增量式的应用**修改而不影响用户的在线请求
 
-![07](images/redshift07.png)
+![p07](images/redshift07.png)
 
 ### Automatic Workload Management
 
@@ -182,7 +182,7 @@ AutoWLM将请求的**查询计划execution plan**和优化器计算出的**统�
 
 在调度的过程中，AutoWLM会始终监控集群的资源利用率，采用**基于排队论的反馈控制机制feedback mechanism based on queuing theory来保持高资源利用率和低等待延迟**，调度算法是常见的**weighted round-robin**机制，使得高优先级的任务能够获得更多的硬件资源，并且通过**抢占preemption**来避免优先级反转
 
-![07](images/redshift07.png)
+![p07](images/redshift07.png)
 
 - 在545时刻，由于监测到IO/CPU的饱和，AutoWLM降低了并发度，从而导致排队的查询增加，此时用户可以选择采用启用[Concurrency Scaling](#concurrency-scaling)或者是定义query priorities来优先执行更关键的任务
 
@@ -217,7 +217,7 @@ AWS提供了诸多开箱即用目的明确的分析服务，例如：
 - Data in Open File Formats in Amazon S3
 - Redshift ML with Amazon Sagemaker
   
-  ![08](images/redshift08.png)
+  ![p08](images/redshift08.png)
 
 - OLTP Sources with Federated Qeury and Glue Elastic Views
 - Redshift's SUPER Schemaless Processing

@@ -19,7 +19,7 @@
 
 ## Column Sketches Overview
 
-![02](images/sketch02.png)
+![p02](images/sketch02.png)
 
 - **Supported Base Data Format**
   对基本数据的唯一要求就是满足给定位置`i`和基准属性`B`，可以获得该位置的数值`B[i]`，显然Column Sketches算法支持row-based/NSM、column-group/PAX或columner/DSM模型，对于数值类型、字典编码的类型，基准属性就是一组定宽值，而对于未编码可变长的字符串，就需要一次间接层（例如先进行字典编码）
@@ -72,11 +72,11 @@
 - **Analysis of Design Choices**
 - **Ordered Categorical Data**
 
-![04](images/sketch04.png)
+![p04](images/sketch04.png)
 
 ## Predicate Evaluation Over Column Sketches
 
-![05](images/sketch05.png)
+![p05](images/sketch05.png)
 
 采用了Intel AVX指令加速计算，算法具体流程解释见原文
 
@@ -90,8 +90,8 @@
 
 ## Experimental Analysis
 
-![07](images/sketch07.png)
+![p07](images/sketch07.png)
 
-![11](images/sketch11.png)
+![p11](images/sketch11.png)
 
-![13](images/sketch13.png)
+![p13](images/sketch13.png)

@@ -119,4 +119,4 @@ Velox Vector与Apache Arrow基本兼容，主要在以下三方面有差异：
 
 ## Experimental Results
 
-![04](images/velox04.png)
+![p04](images/velox04.png)

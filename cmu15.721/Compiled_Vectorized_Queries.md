@@ -115,7 +115,7 @@ int HashJoin::next()
 
 - **Single-Threaded Performance**
 
-  ![03](images/compvec03.png)
+  ![p03](images/compvec03.png)
 
   - Tectorwise使用了更多的指令，并且通常有更高的L1 cache miss，而Q1是定点数计算和足以放入缓存的聚合操作，因此Typer表现更好
   - Typer生成代码后往往对**计算密集、中间结果足以放入缓存**的查询非常友好
@@ -147,7 +147,7 @@ int HashJoin::next()
 
 *单纯的Hashing环节改用SIMD可以有2.3x的提升，但是在实际的整个查询中，由于materialization、memory latency等各种其他因素的影响，最终只有1.1x的提升*
 
-![07](images/compvec07.png)
+![p07](images/compvec07.png)
 
 ## Intra-Query Parallelization
 

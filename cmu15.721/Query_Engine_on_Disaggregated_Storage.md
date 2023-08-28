@@ -35,7 +35,7 @@ Snowflake的查询计划、优化器、并发控制等数据库常见模块的�
 
 ### End-to-end System Architecture
 
-![01](images/snowflake01.png)
+![p01](images/snowflake01.png)
 
 - **Centralized Control via Cloud Services**
   所有用户与云服务层CS交互，该层负责ACL，查询优化、调度、事务管理、并发控制等，CS本身支持多租户以及有相应的副本备份高可用和可扩展性设计
@@ -58,7 +58,7 @@ CS层负责query解析、计划、优化并生成一些子任务，随后调度�
 
 Snowflake的每一层都会收集统计信息，CS层会收集每个VW的数据（节点数、实例类型、失败信息等）、收集每个查询的数据（不同阶段的耗时等），每个节点会收集中间数据层和持久化层的范围跟信息、收集节点资源使用情况（CPU、内存、带宽等）、收集压缩属性等，Snowflake公开了14天7千万查询的一些[统计数据集](https://github.com/resource-disaggregation/snowset)
 
-![02](images/snowflake02.png)
+![p02](images/snowflake02.png)
 
 - **Read-only queries**
   占比约28%，紧沿着x轴的数据代表了始终没有持久化数据的写入，因此是只读查询，其数据量范围可以相差9个数量级，通常代表了**ad-hoc、interactive OLAP**请求，往往结果集较小，从右侧十四天的查询数量中可以看出集中在工作日的白天
@@ -75,7 +75,7 @@ Snowflake的每一层都会收集统计信息，CS层会收集每个VW的数据�
 
 中间数据层会同时采用内存和磁盘存储，**内存中会保存尽可能多的数据，当空间不足时才会溢写到本地SSD中，依然不足则会继续溢写到远端持久化存储**，并不采用纯内存的主要原因在于工作负载大小的高度变化，海量数据不一定能够精细的在内存中处理
 
-![03](images/snowflake03.png)
+![p03](images/snowflake03.png)
 
 从上图中可以看出，精准的资源供给非常困难，这是因为：
 
@@ -88,9 +88,9 @@ Snowflake的每一层都会收集统计信息，CS层会收集每个VW的数据�
 
 引入缓存系统就需要对一致性问题特别小心，Snowflake中并不是每个节点都允许缓存任意持久化数据文件，而是采用**一致性散列consistent hashing**的方式根据持久化数据文件名计算出允许缓存的节点，并采用**一种[延迟优化lazy](#lazy-consistent-hashing) consistent hashing optimization**来避免VW节点弹性扩容缩容时数据需要整体一次性迁移，所有节点采用LRU的方式来管理缓存文件的汰换，中间数据层对持久化数据文件的缓存是以**直写式缓存write-through cache**存在的
 
-![04](images/snowflake04.png)
+![p04](images/snowflake04.png)
 
-![05](images/snowflake05.png)
+![p05](images/snowflake05.png)
 
 - 由于**write-through cache**的存在，因此对中间数据层的写入和持久化层的写入近似1:1
 - 数仓系统大部分查询的**访问有显著的倾向性/局部性**，例如时序上的连续访问，**skewed file access distribution**和**temporal file access patterns**，因此即使中间层的空间仅相当于持久层的0.1%，也有相当出色的缓存命中率
@@ -106,7 +106,7 @@ Snowflake的每一层都会收集统计信息，CS层会收集每个VW的数据�
 - **Locality-aware task scheduling**
   持久化数据文件有机会会被缓存到VW中的某一个节点，因此调度任务时会根据数据的局部性，将任务调度至离数据更近的节点来执行，从图中可以看出，当采用的VW节点数增加时，中间数据层数据交换显著增加，而持久化层的数据读写与节点数基本无关
 
-  ![06](images/snowflake06.png)
+  ![p06](images/snowflake06.png)
 
 - **Work stealing**
   采用一致性散列的方式很容易造成部分分区过载，即部分节点的任务可能过多导致过载，此时根据任务预期完成时间来触发work stealing机制，获得任务的新节点会直接从持久化层读取数据，而不是从原节点读取缓存数据避免已经过载的节点还要服务缓存数据读取
@@ -119,7 +119,7 @@ Snowflake的每一层都会收集统计信息，CS层会收集每个VW的数据�
 
 Snowflake在扩容/缩容时，并不会立即根据一致性散列的新结果重新分区所有缓存数据，而是允许节点**最终收敛**到新的一致性散列结果，例如下图的流程：
 
-![07](images/snowflake07.png)
+![p07](images/snowflake07.png)
 
 1. 起始阶段，VW一共5个节点缓存了6个持久化数据文件，根据局部性原则，任务1和6都会调度到节点1上执行
 2. 某时刻，VW发生扩容，节点6加入系统，此时并不会立即重新分区将文件6迁移
@@ -130,9 +130,9 @@ Snowflake在扩容/缩容时，并不会立即根据一致性散列的新结果�
 
 ### Elasticity Characteristics
 
-![08](images/snowflake08.png)
+![p08](images/snowflake08.png)
 
-![09](images/snowflake09.png)
+![p09](images/snowflake09.png)
 
 绝大部分用户并不会利用扩容，只有少数用户会利用扩容来动态调整VW的节点数，并且可能会非常激烈的进行扩容（节点数有两个数量级的变化），基于图中的观测，还可以考虑的提升有：
 
@@ -147,6 +147,6 @@ Snowflake通过**VW抽象**来提供多租户隔离，每个VW操作一组隔离
 
 ### Resource Sharing
 
-![11](images/snowflake11.png)
+![p11](images/snowflake11.png)
 
 从图中可以看出Snowflake的用户提交任务天然是**短时峰值互不相关**的，因此所有用户共享资源则可以更好的提高资源的平均利用率，但是**难点在于用户之间的隔离**，提供与原先VW分离一样的性能，通常共享资源有更好的平均性能，但对具体的用户具体的请求则可能反而是劣化的

@@ -33,7 +33,7 @@
 
 ## White Box Comparisons
 
-![03](images/eqjoin03.png)
+![p03](images/eqjoin03.png)
 
 ### Optimizing Radix Partitioning
 
@@ -78,7 +78,7 @@ PRO直接采用NUMA分区的方案可能会导致大量tuples需要被写入远�
 - 一对co-partition进行连接时，单个线程首先读取多个NUMA节点的子分区构建local hash table，随后再从多个NUMA节点读取连接的子分区完成探测和连接
 - **PRO中partition阶段的大量small remote random writes被替换为CPRL中join阶段的少量large remote sequential read**
 
-![04](images/eqjoin04.png)
+![p04](images/eqjoin04.png)
 
 ### NUMA-aware Scheduling
 
@@ -90,16 +90,16 @@ PRO算法中由于参与连接的数据在基于NUMA分区后，会出现连续�
 - CPRL算法中由于设计上很自然的使**所有co-partitions都会使用到不同的NUMA节点，因此在连接时天然的并发**，而第一阶段由于只是NUMA节点局部处理，因此内存使用率在开始的阶段非常低
 - CPRL的large remote sequential read依然略微优于PROiS的small remote random writes
 
-![06](images/eqjoin06.png)
+![p06](images/eqjoin06.png)
 
-![07](images/eqjoin07.png)
+![p07](images/eqjoin07.png)
 
 ## Putting It All Together
 
 - **Varying Page Sizes**
   通常采用大页内存降低TLB压力"几乎"总是有利于性能提升
 
-  ![08](images/eqjoin08.png)
+  ![p08](images/eqjoin08.png)
 
 - **Scalability in Dataset Size**
 
@@ -111,7 +111,7 @@ PRO算法中由于参与连接的数据在基于NUMA分区后，会出现连续�
   - Q19中不仅仅需要完成连接，还在不同位置访问了其他的一些属性，例如谓词求值、聚合等，从而需要重建tuples，NOPA算法中参与连接的表并没有分区，因此相关的数据都紧凑的在一起，**数据局部性很好**
   - 访问non-join key属性这对于CPR*系列算法不利，后者只根据join key分区，对于其他属性依然需要根据row-ids去读取，而其他属性不参与分区、可能位于内存的任意位置，**数据局部性不良**
 
-![14](images/eqjoin14.png)
+![p14](images/eqjoin14.png)
 
 ## Lessons Learned
 

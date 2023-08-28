@@ -33,13 +33,13 @@
 - **Replica synchronization**
   Kafka采用**In-Sync Replicas ISR**的概念，而Redpanda采用Raft算法的**quorum-based majority**概念，当要求同样不丢数据时，基于quorum的算法对任意节点宕机、缓慢的容忍度更高，详细可见[此对比](https://redpanda.com/blog/kafka-redpanda-availability)，而ISR的设计在于若能够容忍数据丢失则性能有极大的提升
 
-  ![01](images/redpanda_ha01.png)
+  ![p01](images/redpanda_ha01.png)
   
-  ![02](images/redpanda_ha02.png)
+  ![p02](images/redpanda_ha02.png)
   
-  ![03](images/redpanda_ha03.png)
+  ![p03](images/redpanda_ha03.png)
   
-  ![04](images/redpanda_ha04.png)
+  ![p04](images/redpanda_ha04.png)
 
 - **Rack awareness**
   当启用Rack Awareness时，Redpanda会基于以下策略将topic的副本放置在不同的机架上：
@@ -60,6 +60,6 @@
   - remote read replicas
   - infinite data retention
   
-  ![05](images/redpanda_ha05.png)
+  ![p05](images/redpanda_ha05.png)
 
   *越来越多的系统开始采用这种分层存储，选择本地高性能，选择S3高可用，例如[RisingLight](https://www.risingwave-labs.com/blog/state-management-for-cloud-native-streaming/)也是类似*

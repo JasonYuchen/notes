@@ -8,7 +8,7 @@
 
 如下图的操作历史可以获知，正确的系统应该会read出`aabd`，当我们write一个变量时，则后续的read都能反应这个值，即**read能获得最新的值**，当read返回的不是最新的值时，这个系统就是错误的，这种单个变量单个值的系统称为寄存器register
 
-![1](images/short1.png)
+![p1](images/short1.png)
 
 从而我们可以根据这种方式定义**系统的正确性correctness：给定规则rules，当系统的操作历史history总是符合这些规则时，系统就是正确的，而所谓的规则就是一致性模型consistency model**
 
@@ -18,13 +18,13 @@
 
 假定现在有图中上下两个processes在并发运行，则前述的register模型就会被打破，即上面的process会读出`ab`而`b`并不是该process最近写入的，为了能够**描述processes并发的模型（实际情况中总是多进程并发的），一个process可以read出变量最新的值而不在乎是哪个process写入的**
 
-![2](images/short2.png)
+![p2](images/short2.png)
 
 ## "光锥" Light cones
 
 能够描述processes并发的模型还不够，因为现实世界里数据的**read/write并不是瞬间完成的**，而是需要时间，就好像图中发起操作是入射光，到达系统的某一点，随后返回结果是反射光，从而完成整个操作（如同光锥），即**一个操作有调用时间invocation time和完成时间completion time**；并且不同processes的不同operations速度不同，体现在入射反射角度大小的不同，即调用时间和完成时间也不同
 
-![3](images/short3.png)
+![p3](images/short3.png)
 
 - **如果基于invocation time**，假如图中bottom-process的`read`比top-process的`write`要早但是抵达系统的点bottom比top要晚，就会出现read到`b`而不是read invocation时的最新状态`a`
 - **如果基于completion time**，假如图中bottom-process的`read'`比top-process的`write'`要晚但是抵达系统的点bottom比top要早，就会出现read到`a`而不是read completion时的当前状态`b`，
@@ -35,7 +35,7 @@
 
 虽然消息发送和接收可以出现延迟，但是不可能穿越时间，因此每一个**操作的invocation time和completion time一起构成了整个操作的屏障bounds**，如图中深色区域所代表的任意一个时刻都有可能是操作真正执行的时刻，这个区域存在重叠的操作才是并发的操作
 
-![4](images/short4.png)
+![p4](images/short4.png)
 
 假定有一个系统的全局状态，任意process都与该系统进行交互，并且所有操作都能在`[invocation, completion]`内原子完成atomically，这样的系统称之为具有**线性一致性Linearizability**
 
@@ -45,7 +45,7 @@
 
 注意上述要求都是**从外界视角来看**的，系统本身是否真正原子完成操作等实现并不是考虑的点
 
-![5](images/short5.png)
+![p5](images/short5.png)
 
 **线性一致性会导致一旦一个操作完成，所有processes都能看到这个操作的结果**，操作实际生效的时间点一定在completion time之前，因此所有在completion time之后发起的操作，其生效时间点一定在其invocation time之后，因此后续操作执行时的系统状态一定包含了前序操作的结果，从而线性一致性也保证了不会出现过期读stale read、不单调读non-monotonic read
 
@@ -53,7 +53,7 @@
 
 对线性一致性模型进行放宽限制，允许单个process的操作在系统中**生效的时间平移skew in time**，即允许操作实际生效的时间点在invocation之前（例如read到旧数据，如下图）或是completion之后（例如推迟write生效），但是**依然要保证每个process内部所有操作依然有序**，从而获得了较弱的**顺序一致性模型Sequential consistency**
 
-![6](images/short6.png)
+![p6](images/short6.png)
 
 例如用户在twitter上发表了1,2,3三条消息，消息被缓存处理、写扩散，则关注该用户的用户并不一定能立即看到消息，而是在不同时刻看到1,2,3三条消息，但一定是1,2,3的顺序而不会乱序
 
@@ -65,7 +65,7 @@
 
 假如一个操作**历史等价于某个原子顺序single stomic order（操作本身是原子性的），但是对于invocation time和completion time没有任何限制**，从而获得了**可序列化serializability**，如下图，top-process和bottom-process的所有操作等同于系统状态改变的一个原子顺序，但是其invocation time和completion time交错：
 
-![7](images/short7.png)
+![p7](images/short7.png)
 
 可序列化是弱weak的，例如下列操作的`print`可以输出`nil, 1 or 2`，因为只需保证等价于某个重排后的顺序，所以可能的发生方式很多，例如`x: 1->print->2`就会输出`2`：
 
@@ -96,7 +96,7 @@ CAP理论定义如下：
 
 **CAP认为三者只能牺牲其中一者以做到余下两者**，由于网络分区总是会出现，因此现实的系统**一定是AP或CP而不可能是CA**，下图中红色部分的一致性模型均不可能做到**完全可用fully available**：
 
-![8](images/short8.png)
+![p8](images/short8.png)
 
 放宽可用性的限制就可以实现更多的一致性模型，图中蓝色部分，例如强调请求总是发往固定的一个节点从而可以获得因果一致性causal consistency，读己之写read-your-writes consistency一致性
 

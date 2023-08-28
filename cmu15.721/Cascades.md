@@ -168,7 +168,7 @@ query optimizer输出：
 
 **Live query statistics**实时展示一条查询在执行过程中各个物理算子的统计信息
 
-![01](images/cascades01.jpg)
+![p01](images/cascades01.jpg)
 
 ## Common Sub-Expressions
 

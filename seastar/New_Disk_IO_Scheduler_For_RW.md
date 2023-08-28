@@ -21,13 +21,13 @@
 
 通过一个简单的工具[Diskplorer](https://github.com/scylladb/diskplorer)来对磁盘施加变化的负载（例如纯读负载、纯写负载、读写混合等，**参考YCSB**），显然负载包含了上述四个参数的变化，最终体现的是延迟，因此结果应该是**5维的状态空间**，从而来衡量的真实性能，例如下图构建了R_IOPS-W_bandwidth的关系（平面中难以画出5维的结果，因此可以通过投影观察）：
 
-![1](images/nioscheduler1.png)
+![p1](images/nioscheduler1.png)
 
 图中（示例为NVMe磁盘）可以近似看出**半双工half-duplex**的表现，即当读IOPS加倍时，为了维持延迟不变则需要写吞吐量减半，即**近似线性负相关关系**
 
 *HDD有较为特别的结果，在少于100MB/s也是近似线性负相关关系，但是在100MB/s上则完全无法服务读请求，类似**截断**的表现*
 
-![2](images/nioscheduler2.webp)
+![p2](images/nioscheduler2.webp)
 
 ## The Math
 
@@ -63,7 +63,7 @@ N(T)=\frac{T_0}{O_r}+\frac{T_1}{B_r}
 
 令牌桶算法中，有两个输入值和一个输出值，输入值为实际请求的数据量和**被限流的令牌量**，从而要求数据量和令牌量必须匹配才能输出，通过**限制可控令牌的速率来间接控制不可控请求的速率**，如下图：
 
-![3](images/nioscheduler3.png)
+![p3](images/nioscheduler3.png)
 
 每个请求会在桶中等待直到能够获取到$N(T)$的令牌量才被真正发送给磁盘，而令牌则会以给定的速率$K$补充到桶中
 
@@ -71,7 +71,7 @@ N(T)=\frac{T_0}{O_r}+\frac{T_1}{B_r}
 
 实际在Seastar中采用了二级令牌桶，即**令牌并不是凭空产生并补充给令牌桶的，而是在真正的IO请求完成时才会补充给二级令牌桶**，随后再以恒定速率$K$回充给一级令牌桶
 
-![4](images/nioscheduler4.png)
+![p4](images/nioscheduler4.png)
 
 采用上述修改后的令牌桶算法，确保了应用的所有IO请求实际上不会突破模型预测的理论上限和实际硬盘表现出来的上限，具体代码实现的[commit](https://github.com/scylladb/seastar/commit/837cadbe12c1b2be12158d48fffadfc8407c187d)及流程分析[见此](#implementation)
 
@@ -89,7 +89,7 @@ N(T)=\frac{T_0}{O_r}+\frac{T_1}{B_r}
 
    - 4.6中维持了总带宽达到了800MB/s，而这就是磁盘的峰值性能，相比之下**5.0仅维持在710MB/s**这是因为考虑了读写的不同所产生的最后聚合带宽
 
-    ![5](images/nioscheduler5.png)
+    ![p5](images/nioscheduler5.png)
 
 2. **前端查询过程中的吞吐量对比**
    （左侧为4.6曲线代表整体吞吐量，右侧为5.0黄色代表写入绿色代表读取，三个阶段平台是因为读请求的入流速度分别为`10k, 5k, 7.5k`）
@@ -97,7 +97,7 @@ N(T)=\frac{T_0}{O_r}+\frac{T_1}{B_r}
    - 5.0中对后台compaction过程的读写进行了更大的限制（我们通常总是希望后台进程能够在系统闲置时运作，在**前端请求忙碌时尽可能将资源用于降低前端延迟**，因此5.0更符合我们的目标），而相应的5.0前端请求所占用的磁盘资源更多
    - 从三个峰值的读请求占用带宽可以推测出4.6中的前端请求处理相对不稳定**甚至无法满足预期的读请求速率**，带宽存在波动，而5.0则非常稳定
 
-    ![6](images/nioscheduler6.png)
+    ![p6](images/nioscheduler6.png)
 
 Seastar考虑了两类延迟，**不可控的队列in-queue延迟（下图中的绿线）**和**可控的磁盘in-disk延迟（下图中的黄线）**，前者由应用层的实际请求数量决定并且由应用层来维护（例如Scylla引入[背压机制](https://www.scylladb.com/2018/12/04/worry-free-ingestion-flow-control/)），而后者则由Seastar来控制并追求最优
 
@@ -106,9 +106,9 @@ Seastar考虑了两类延迟，**不可控的队列in-queue延迟（下图中的
 
    - 5.0的磁盘延迟约为443微秒，显著低于4.6版本的1.45毫秒，**延迟显著优化**
 
-    ![7](images/nioscheduler7.webp)
+    ![p7](images/nioscheduler7.webp)
 
-    ![8](images/nioscheduler8.png)
+    ![p8](images/nioscheduler8.png)
 
 2. **前端查询过程中的延迟对比**
    （上图为4.6，下图为5.0，黄色代表磁盘in-disk延迟，绿色代表队列in-queue延迟）
@@ -116,9 +116,9 @@ Seastar考虑了两类延迟，**不可控的队列in-queue延迟（下图中的
    - 后台compaction过程被抑制，从而充分多的资源用于处理前端请求（**short and latency sensitive reads**）
    - 5.0的前端请求磁盘处理延迟降低约一半，而**队列延迟则显著降低**，对于前端查询过程来说，队列延迟以及磁盘延迟一起作为上游可观测的延迟，而这个延迟得到了显著优化
 
-    ![9](images/nioscheduler9.png)
+    ![p9](images/nioscheduler9.png)
 
-    ![10](images/nioscheduler10.png)
+    ![p10](images/nioscheduler10.png)
 
 ## Implementation
 

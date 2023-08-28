@@ -26,7 +26,7 @@
 
 上述的pull-based的模型始终无法避免数据反复复制/移动打破pipeline（定义为**数据始终存放在寄存器中进行计算**的一个阶段）的情况，而采用push-based的模型则可以很好的维护寄存器状态，**将查询计划按pipeline breaker进行切分**，从而在每个pipeline内利用push-based的方法可以极大的优化执行性能：
 
-![01](images/compile01.png)
+![p01](images/compile01.png)
 
 1. 从`R1`中扫描数据施加filter并构建散列表
 2. 从`R2`中扫描数据施加filter并构建聚合值散列表
@@ -46,13 +46,13 @@
 5. $\Join_{a=b}(attributes, \sigma_{x=7})$ 连接获得了左子算子的数据，存储在散列表中，并开始要求右子算子提供数据
 6. $\Join_{c=z}.produce$ 后续同理直到**数据被逐算子处理并向上推送**
 
-![02](images/compile02.png)
+![p02](images/compile02.png)
 
 ## Code Generation
 
 采用**LLVM和C++混合**编写的模式，高效的数据处理代码由LLVM生成，复杂的逻辑控制和内存交互则由C++负责，从而良好的平衡了性能和代码复杂性
 
-![03](images/compile03.png)
+![p03](images/compile03.png)
 
 ## Advanced Parallelization Techniques
 
