@@ -44,7 +44,7 @@
 - **Software Write-Combine Buffers**
   SWWCB也称为software managed buffers，用于缓存少量输出的tuples（通常**等于一个cache line的大小**）并一次性整个buffer写入到目的内存，通常buffer可以常驻在高速缓存种，并且以**批量的方式写入内存，避免per-tuple访存**的额外开销
 
-  ```C++
+  ```cpp
   for (auto tuple : relation) {
     auto partition = hash(tuple.key);
     auto pos = slots[partition] % TuplePerCacheline;

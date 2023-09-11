@@ -105,7 +105,7 @@ c=e^{t/\tau}c_0=e^{t/\tau}(w/s)
 
 在每个`priority class`内部会有个累加器记录该优先级下所有发出请求的I/O代价总和，当并发请求数量少于`IO Queue`队列深度时，所有`priority class`的请求都可以进入，但是当出现竞争时就必须等待，而`IO Queue`每次都会**挑选代价总和最低的`priority class`进行执行，而I/O请求的代价随着时间指数衰减相当于是'优先级'提高最终一定会被执行，保证了没有饥饿的发生**，类似[Xen Credit Scheduler](https://wiki.xenproject.org/wiki/Credit_Scheduler)，代价计算过程`<seastar/src/core/fair_queue.cc>`如下：
 
-```C++
+```cpp
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     //// skip
 
@@ -200,7 +200,7 @@ Scylla在运行时会通过统计数据来找出磁盘的[最佳并发度max use
 
 注意：这一部分代码实际上是[IO Scheduler 2.0](#part-iv-新调度器-new-io-scheduler)的代码
 
-```C++
+```cpp
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     while (_requests_queued) {
         /// skip
@@ -303,7 +303,7 @@ head rover和tail rover则是两个原子变量，每个shard都需要参与更�
 
 在这里采用了**滑动窗口sliding window的方式**，使用`head`标识实际的容量和`tail`标识当前执行的容量，即`head - tail`就是可用容量，当发起IO请求时`tail += cost`，结束IO请求时`head += cost`，假如某次IO请求占用的容量超过的可用余量，即`tail += cost; tail > head`就需要等待，此时`tail`已经被更新到超过`head`的值，**该请求就会等到`head >= tail`才被执行，从而保证了IO请求过多时实际的执行顺序与请求的提交顺序一致**
 
-```C++
+```cpp
 fair_group_rover fair_group::grab_capacity(fair_queue_ticket cap) noexcept {
     // 发起IO请求时无论当前tail是否已经超过head，总是会递增tail，并且返回递增前tail的值
     fair_group_rover cur = _capacity_tail.load(std::memory_order_relaxed);

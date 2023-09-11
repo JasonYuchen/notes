@@ -125,7 +125,7 @@ Seastar考虑了两类延迟，**不可控的队列in-queue延迟（下图中的
 - `fair_queue_ticket`用于描述**IO请求的代价，维度包括IOPS和size**
   - `make_ticket`根据IO请求的读写/大小，以及磁盘相应的最大读写带宽/IOPS，计算出该次IO请求的代价，并根据读写请求的差异，将**写请求的代价转换为读请求的代价**
 
-    ```C++
+    ```cpp
     // seastar/core/fair_queue.hh
     class fair_queue_ticket {
         uint32_t _weight = 0;      ///< the total weight of these requests for capacity purposes (IOPS).
@@ -163,7 +163,7 @@ Seastar考虑了两类延迟，**不可控的队列in-queue延迟（下图中的
   - **一级令牌桶**：直接从中获取tokens用于IO请求，就是 `(tail head)` 这一段
   - **二级令牌桶**：IO请求完成时才会回充，并且**从中获取tokens用于给定速率回充给一级令牌桶**，就是 `(head ceil)` 这一段，从而调用`bucket.replenish(now)`将`head`前进等同于消费 `(head ceil)` 桶并补充 `(tail head)` 桶，并且当前最多不能超过`max_extra`的量即`ceil - head`的量
 
-```C++
+```cpp
 template <typename T>
 struct rovers<T, capped_release::yes> {
     using atomic_rover = std::atomic<T>;
@@ -193,7 +193,7 @@ struct rovers<T, capped_release::yes> {
   - `release`：IO请求结束时回充给二级令牌桶
   - `replenish`：按给定速率$K$从二级令牌桶中获取tokens补充给一级令牌桶
 
-    ```C++
+    ```cpp
     // seastar/util/shared_token_bucket.hh
     template <typename T, typename Period, capped_release Capped, typename Clock = std::chrono::steady_clock>
     class shared_token_bucket {
@@ -324,7 +324,7 @@ struct rovers<T, capped_release::yes> {
 
 - `fair_group`采用双令牌桶的方式对所有IO请求进行quota分配（基于每个IO所属类别持有的shares）
 
-    ```C++
+    ```cpp
     class fair_group {
     public:
         using capacity_t = uint64_t;
@@ -471,7 +471,7 @@ struct rovers<T, capped_release::yes> {
 
    1. 调用IO接口并最终提交给`io_queue`，例如`posix_file_impl::write_dma`或`posix_file_impl::read_dma`（以下都以写请求为例）
 
-        ```C++
+        ```cpp
         future<size_t>
         posix_file_real_impl::write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept {
             return posix_file_impl::do_write_dma(pos, buffer, len, pc, intent);
@@ -495,7 +495,7 @@ struct rovers<T, capped_release::yes> {
 
     2. 在`io_queue`中会根据请求是否超过阈值，对其进行分割，**单次过大的请求会被分割成多个较小的IO请求**，这里以不分割为例，加入队列后的IO请求就等待reactor引擎进行处理
 
-        ```C++
+        ```cpp
         future<size_t>
         io_queue::queue_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
             size_t max_length = _group->_max_request_length[dnl.rw_idx()];
@@ -531,7 +531,7 @@ struct rovers<T, capped_release::yes> {
 
     3. reactor引擎会进行[轮询poll](https://github.com/JasonYuchen/notes/blob/master/seastar/Reactor.md#reactor%E5%92%8Cpollfn)，随后有IO请求等待的队列`io_queue`就会被执行请求分发提交给磁盘
 
-        ```C++
+        ```cpp
         class reactor::io_queue_submission_pollfn final : public reactor::pollfn {
         public:
             virtual bool poll() final override {
@@ -559,7 +559,7 @@ struct rovers<T, capped_release::yes> {
 
     4. IO请求的处理过程主要包含的步骤见代码和注释，注意该实现已经与[此前的流程](https://github.com/JasonYuchen/notes/blob/master/seastar/Disk_IO_Scheduler.md#part-iv-%E6%96%B0%E8%B0%83%E5%BA%A6%E5%99%A8-new-io-scheduler)略有不同 
 
-        ```C++
+        ```cpp
         auto
         fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept -> grab_result {
             // 若已经有处于pending的请求，则首先检查该pending请求所claim的tokens是否可以被抢占

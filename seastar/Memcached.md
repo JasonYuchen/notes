@@ -94,7 +94,7 @@ seastar采用了[Ragel](https://en.wikipedia.org/wiki/Ragel)来生成`ascii.hh`
 
 [参考教程中的`seastar::sharded`](https://github.com/JasonYuchen/notes/blob/master/seastar/Comprehensive_Tutorial.md#%E5%88%86%E7%89%87%E6%9C%8D%E5%8A%A1-sharded-services)
 
-```C++
+```cpp
 int main(int ac, char** av) {
     // distributed等同于seastar::sharded
     distributed<memcache::cache> cache_peers;
@@ -161,7 +161,7 @@ int main(int ac, char** av) {
 - 捕获所有初始化阶段的异常
 - 相比较continuation的方式（大量使用`.then()`），coroutine的方式更加直观贴近同步的写法，不易出错
 
-```C++
+```cpp
 int main(int ac, char **av)
 {
   namespace bpo = boost::program_options;
@@ -224,7 +224,7 @@ int main(int ac, char **av)
 
 采用C++20 Coroutine极大的简化了异步代码的编写复杂性，逻辑更为直观和内聚
 
-```C++
+```cpp
 class tcp_server {
  private:
   // 用于在停止服务时等待最后一个连接处理结束
@@ -332,7 +332,7 @@ class tcp_server {
 
 在TCP server中使用，根据当前连接收到的数据状态（`_parser._state`）构造状态机（底层使用`sharded_cache`）来服务一条连接，而UDP server则是直接使用`sharded_cache`
 
-```C++
+```cpp
 future<> ascii_protocol::handle(input_stream<char>& in, output_stream<char>& out) {
     _parser.init();
     return in.consume(_parser).then([this, &out] () -> future<> {

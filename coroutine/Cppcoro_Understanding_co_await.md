@@ -27,7 +27,7 @@ Coroutines定义了以下两种接口：
 
 当该`awaitable`有可用的`operator co_await()`重载时，就会调用并获得Awaiter对象，否则`awaitable`就会被直接作为Awaiter
 
-```C++
+```cpp
 template<typename P, typename T>
 decltype(auto) get_awaitable(P& promise, T&& expr)
 {
@@ -53,7 +53,7 @@ decltype(auto) get_awaiter(Awaitable&& awaitable)
 
 `co_await <expr>`就会被编译器转换为如下代码：
 
-```C++
+```cpp
 {
   auto&& value = <expr>;
   auto&& awaitable = get_awaitable(promise, static_cast<decltype(value)>(value));
@@ -100,7 +100,7 @@ decltype(auto) get_awaiter(Awaitable&& awaitable)
 
 调用`await_suspend()`时会传入`coroutine_handle<P>`，通过调用此handler从而控制协程的行为，例如`resume()`和`destroy()`：
 
-```C++
+```cpp
 template<typename Promise>
 struct coroutine_handle;
 
@@ -191,7 +191,7 @@ Time     Thread 1                           Thread 2
 
 实现一个异步set的对象，基本用法如下：
 
-```C++
+```cpp
 T value;
 async_manual_reset_event event;
 
@@ -219,7 +219,7 @@ task<> consumer()
 
 对象的接口设计如下：
 
-```C++
+```cpp
 class async_manual_reset_event
 {
 public:
@@ -252,7 +252,7 @@ private:
 
 ### 1. Defining the Awaiter
 
-```C++
+```cpp
 struct async_manual_reset_event::awaiter
 {
   awaiter(const async_manual_reset_event& event) noexcept
@@ -311,7 +311,7 @@ private:
 
 ### 2. Filling out the rest of the event class
 
-```C++
+```cpp
 class async_manual_reset_event
 {
 public:

@@ -10,7 +10,7 @@
 
 - **开放系统 Open Model**：所有请求独立的发生并施加到开放系统上，请求的产生不会受系统处理速度的影响
   
-  ```C++
+  ```cpp
   for (;;) {
     // various requests are being made independently
     std::thread([]() {
@@ -21,7 +21,7 @@
 
 - **封闭系统 Close Model**：在一批初始请求后，只有当请求被处理完成后才会发出新的请求，即类似闭环控制，请求的发起速度受系统处理速度约束
 
-  ```C++
+  ```cpp
   std::thread([]() {
     for (;;) {
       // only return when completed
@@ -37,7 +37,7 @@
 
 1. 简单方式
 
-    ```C++
+    ```cpp
     for (auto i : range{1, X}) {
       std::thread([]() {
         make_request("a request");
@@ -52,7 +52,7 @@
 
 2. 预分配资源
 
-    ```C++
+    ```cpp
     for (auto i : range{1, N}) {
       std::thread([]() {
         for (;;) {
@@ -89,7 +89,7 @@
 
 - **队列 Queueing**：将未能按时发起的请求加入队列等待，并**在系统响应时尽快发出，这种方式配合静态调度是最为常见的**，广泛使用在YCSB，Cassandra-stress，wrk2等测试工具中，而配合**动态调度时往往需要一个全局的限流器**（配合minimum delay）限制峰值流量
 
-  ```c++
+  ```cpp
   // static with queueing
   for (auto i : range{1, N}) {
     std::thread([]() {

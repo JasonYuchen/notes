@@ -20,7 +20,7 @@ C++入门项目，略过
 
 一个LRU的置换算法+缓存池管理，在脏页判断时犯了一个错误，一个页一旦变为脏页，就一直是脏页直到写入磁盘，因此在设置脏页位`is_dirty_`时必须用`|=`而不能用`=`
 
-```C++
+```cpp
 bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
   std::lock_guard<std::mutex> guard(latch_);
   if (auto p = page_table_.find(page_id); p != page_table_.end()) {
@@ -91,7 +91,7 @@ bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
 - `UPDATE`如果更新的数据列上有索引，则应该同时更新索引，先删除旧值，再插入新值
 - 嵌套循环连接算子注意需要保存当前内外表的处理位置，因为`Next`需要从上次的位置开始继续查找下一个能连接的`Tuple`
 
-    ```C++
+    ```cpp
     while (true) {
       Tuple tmp_inner_tuple;
       RID tmp_inner_rid;
@@ -114,7 +114,7 @@ bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
 
 - 所有会输出结果的执行器都应该根据`OutputSchema`重新组织将输出的`Tuple`，根据每一列的`Expression`进行`Evaluate*`来获取对应的数据：
 
-    ```C++
+    ```cpp
     std::vector<Value> values;
     for (const auto &column : output_schema->GetColumns()) {
       values.emplace_back(column.GetExpr()->Evaluate(&origin, origin_schema));
@@ -128,7 +128,7 @@ bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
 
 - 聚合算子的核心是在`Init`时就完成结果的计算，`Next`只是使用`SimpleAggregationHashTable::Iterator`逐个输出：
 
-    ```C++
+    ```cpp
     void AggregationExecutor::Init() {
       aht_ = std::make_unique<SimpleAggregationHashTable>(plan_->GetAggregates(), plan_->GetAggregateTypes());
       Tuple tmp_tuple;
@@ -154,7 +154,7 @@ bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
 
 - 代码中**注释的要求不准确**（`lock_manager.h:[LOCK_NOTE]....`不准确），根据2020Fall的指示，所有`LockShared/LockExclusive/LockUpgrade/Unlock`在失败时都应抛出`TransactionAbortException`以及对应的`AbortReason`，例如：
 
-    ```C++
+    ```cpp
     // READ_UNCOMMITED级别下事务不应该获取任何S锁，因此LockShared应检查隔离级别
     if (txn->GetIsolationLevel() == IsolationLevel::READ_UNCOMMITTED) {
       txn->SetState(TransactionState::ABORTED);
@@ -164,7 +164,7 @@ bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
 
 - 对于解锁操作，由于2PL要求一旦进入解锁期间`SHRINKING`就不能再获得锁，而在`READ_COMMITTED`级别下获取的S锁应立即释放，因此需要在非`READ_COMMITTED`下才会修改`GROWING->SHRINKING`
 
-    ```C++
+    ```cpp
     if (txn->GetState() == TransactionState::GROWING &&
         // do not set shrinking for READ_COMMITTED
         !(txn->IsSharedLocked(rid) && txn->GetIsolationLevel() == IsolationLevel::READ_COMMITTED)) {
@@ -174,7 +174,7 @@ bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
 
 - 判断死锁本质上就是事务优先图寻找环，深度优先搜索即可，需要注意要求每次找环是确定性的，所以必须**从事务号小到大搜索**，而发现死锁后需要**主动打断txn_id最大（最年轻的事务）的事务**，通过如下实现：
 
-    ```C++
+    ```cpp
     auto txn = TransactionManager::GetTransaction(txn_id);
     txn->SetState(TransactionState::ABORTED);
     for (auto &r : lock_table_) {
@@ -212,7 +212,7 @@ bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
 
 - 锁升级的操作有多种方式，这里采用了将升级锁的请求包装成一个`LockRequest mode=Exclusive`作为占位符放置在`LockRequestQueue`中，由于申请升级的操作一定有一个`LockRequest mode=Shared`在队列前部，等到`Unlock`检查到**可以升级时就会将S锁改成X锁，并删除占的请求**，如下：
 
-    ```C++
+    ```cpp
     void LockRequestQueue::Unlock(Transaction *txn, const RID &rid) {
       // ...
       if (upgrading_) {
@@ -246,7 +246,7 @@ bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
   - `update_executor.cpp`：额外需要注意的是这里的索引是先删除再插入来模拟更新，而`IndexWriteRecord`可以直接使用`WType::UPDATE`，但是需要手动额外赋值`record.old_tuple_ = origin_key`；或者也可以通过两个`WType::INSERT + WType::DELETE`来做（参考事务的`Abort()`，两者是等价）
   - `seq_scan_executor.cpp`：需要根据隔离级别分别加锁，简单来说读未提交不需要加锁，读已提交和可重复读都要加S锁（注意**一个事务应该保证不对已经持有的锁再加锁**，同时事务可能涉及多个查询，不能用`empty()`来判断是否已经持有当前要加的锁），同时读已提交的S锁应在使用后立即释放
 
-      ```C++
+      ```cpp
       if (lm_ != nullptr && exec_ctx_->GetTransaction()->GetIsolationLevel() == IsolationLevel::READ_COMMITTED) {
         // for read committed, release the lock immediately
         if (exec_ctx_->GetTransaction()->IsSharedLocked(r)) {

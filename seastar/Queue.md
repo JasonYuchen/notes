@@ -8,7 +8,7 @@ seastar是一个基于continuation的异步编程框架，而从C++ 20开始，s
 
 *这也是一个通过`promise`和`future`来实现协程间协作的范例*
 
-```C++
+```cpp
 template <typename T>
 class queue {
   std::optional<promise<>> _not_empty;
@@ -20,7 +20,7 @@ class queue {
   - 直接`push()`元素会失败
   - **选择`push_eventually()`就会被`not_full()`挂起**直到有元素被移除，`not_full()`中生成一对`promise`和`future`，当队列存在空间时`promise`就会满足，对应的`future`就绪后原先的`push_eventually()`成功
   
-  ```C++
+  ```cpp
   template <typename T>
   inline future<> queue<T>::push_eventually(T&& data) {
       if (_ex) {
@@ -57,7 +57,7 @@ class queue {
 
   **通过判断`_not_full`是否为空就知道是否有协程在等待**，直接`_not_full->set_value()`使得等待的协程就绪，随后可以被运行，同时清空`_not_full`
 
-  ```C++
+  ```cpp
   template <typename T>
   inline T queue<T>::pop() {
       if (_q.size() == _max) {
@@ -86,7 +86,7 @@ class queue {
 
 需要注意的是`producer`和`consumer`都可以不等待，只需要**在reactor引擎退出前确保这两个协程都已经结束**即可，否则ASAN会报错memory leak
 
-```C++
+```cpp
 seastar::future<> producer(seastar::queue<int>& q) {
   for (int i = 0; i < 5; ++i) {
     std::cout << "producer " << i << std::endl;
@@ -140,7 +140,7 @@ end
 
 ## 完整代码
 
-```C++
+```cpp
 /// Asynchronous single-producer single-consumer queue with limited capacity.
 /// There can be at most one producer-side and at most one consumer-side operation active at any time.
 /// Operations returning a future are considered to be active until the future resolves.

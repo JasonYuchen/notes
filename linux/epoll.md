@@ -29,7 +29,7 @@
 
 1. `eventpoll`：每创建一个epollfd, 内核就会分配一个`eventpoll`与之对应, 可以说是内核态的epollfd
 
-    ```C++
+    ```cpp
     /* This structure is stored inside the "private_data" member of the file
      * structure and rapresent the main data sructure for the eventpoll
      * interface. */
@@ -69,7 +69,7 @@
 
 1. `epitem`：表示一个被监听的fd，使用`epoll_ctl()`将一批fds加入到某个epollfd时, 内核会分配一批的`epitem`与fds们对应
 
-    ```C++
+    ```cpp
     /* Each file descriptor added to the eventpoll interface will
      * have an entry of this type linked to the "rbr" RB tree. */
     struct epitem {
@@ -134,7 +134,7 @@
 
 1. `epoll_create`：创建epoll
 
-    ```C++
+    ```cpp
     /* epoll_create()直接调用epoll_create1, size这个参数没有任何作用 */
     SYSCALL_DEFINE1(epoll_create, int, size)
     {
@@ -180,7 +180,7 @@
 
 1. `epoll_ctl`：控制epoll监听的fd对象，添加ADD、删除MOD、修改DEL
 
-    ```C++
+    ```cpp
     /* epfd:  epollfd
     * op:    ADD,MOD,DEL
     * fd:    需要监听的描述符
@@ -279,7 +279,7 @@
 
 1. `ep_alloc`：分配`eventpoll`结构，在`epoll_create`内会被调用
 
-    ```c++
+    ```cpp
     static int ep_alloc(struct eventpoll **pep)
     {
         int error;
@@ -312,7 +312,7 @@
 
 1. `ep_insert`：插入一个新监听的fd，在`epoll_ctl`内会被调用
 
-    ```C++
+    ```cpp
     /* Must be called with "mtx" held. */
     /* tfile是我们监听的fd在内核态的struct file结构 */
     static int ep_insert(
@@ -422,7 +422,7 @@
 
 1. `ep_ptable_queue_proc`：在`ep_insert`中的`f_op->poll()`里会被调用，用于关联监听的fd和`epitem`
 
-    ```C++
+    ```cpp
     /* This is the callback that is used to add our wait queue to the
      * target file wakeup lists. */
     /* 该函数在调用f_op->poll()时会被调用.
@@ -456,7 +456,7 @@
 
 1. `ep_poll_callback`：在监听的fd发生事件时会被调用的回调函数，在该函数中会唤醒`epoll_wait()`
 
-    ```C++
+    ```cpp
     /* This is the callback that is passed to the wait queue wakeup
      * machanism. It is called by the stored file descriptors when they
      * have events to report. */
@@ -525,7 +525,7 @@
 
 1. `epoll_wait`：等待监听的一系列fd中，某些fd有事件发生
 
-    ```C++
+    ```cpp
     /* Implement the event wait interface for the eventpoll file. It is the kernel
      * part of the user space epoll_wait(2).
      * epoll_wait的内核实现 */
@@ -587,7 +587,7 @@
 
 1. `ep_poll`：被`epoll_wait`调用，真正等待事件发生的poll函数
 
-    ```C++
+    ```cpp
     static int ep_poll(
         struct eventpoll *ep,
         struct epoll_event __user *events,
@@ -657,7 +657,7 @@
 
 1. `ep_send_events`：发送监听到的事件给应用程序，在`ep_poll`中被调用
 
-    ```C++
+    ```cpp
     /* ep_send_events拷贝事件给用户空间，不超过指定的最大事件数 */
     static int ep_send_events(
         struct eventpoll *ep,
@@ -673,7 +673,7 @@
 
 1. `ep_scan_ready_list`：扫描就绪链表，并通过`ep_send_events_proc`将每个就绪事件发送给应用程序
 
-    ```C++
+    ```cpp
     /* ep_scan_ready_list:
     *   Scans the ready list in a way that makes possible for
     *   the scan code, to call f_op->poll(). Also allows for
@@ -758,7 +758,7 @@
 
 1. `ep_send_events_proc`：执行发送就绪事件给应用程序，作为callback在`ep_scan_ready_list`中被调用
 
-    ```C++
+    ```cpp
     /* head是一个链表, 包含了已经ready的epitem,
      * 这个不是eventpoll里面的ready list, 而是ep_scan_ready_list中的txlist. */
     static int ep_send_events_proc(
@@ -831,7 +831,7 @@
 
 1. `ep_free`：用于关闭epollfd时释放资源
 
-    ```C++
+    ```cpp
     static void ep_free(struct eventpoll *ep)
     {
         struct rb_node *rbp;

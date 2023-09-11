@@ -2,7 +2,7 @@
 
 基于Seastar编写的程序中各类函数往往返回值是`seastar::future<T>`，与[协程](https://github.com/JasonYuchen/notes/blob/master/seastar/Coroutines.md)完美融合，因此对函数进行单元测试时，我希望能够有如下的测试代码：
 
-```C++
+```cpp
 TEST(suite, name) {
   auto i = co_await func();
   ASSERT_EQ(i, 0);
@@ -11,7 +11,7 @@ TEST(suite, name) {
 
 而gtest框架并不支持这样的做法，gtest会根据`TEST(suite, name)`生成一个返回`void`的测试函数，显然不满足协程的使用要求，seastar中提供了自己的测试框架（基于boost）可以做到：
 
-```C++
+```cpp
 // seastar/tests/unit/coroutines_test.cc
 SEASTAR_TEST_CASE(test_preemption) {
     bool x = false;
@@ -37,7 +37,7 @@ SEASTAR_TEST_CASE(test_preemption) {
 
 seastar提供的测试宏`SEASTAR_TEST_CASE`主要展开为一个结构体（与gtest相同）并且其函数体主要位于`run_test_case`中，相应的返回值为`seastar::future<>`从而能够使用协程的方式来编写测试代码
 
-```C++
+```cpp
 // seastar/testing/test_case.hh
 #define SEASTAR_TEST_CASE(name) \
     struct name : public seastar::testing::seastar_test { \
@@ -52,7 +52,7 @@ seastar提供的测试宏`SEASTAR_TEST_CASE`主要展开为一个结构体（与
 
 进一步来看seastar的测试运行的实现，主要是每个测试类所继承的`seastar::testing::seastar_test`，其构造函数中完成了测试的注册：
 
-```C++
+```cpp
 // seastar/testing/seastar_test.hh
 class seastar_test {
 public:
@@ -92,7 +92,7 @@ seastar_test::seastar_test() {
 
 在`seastar_test::run()`中调用了每个测试的`run_test_case()`来实际运行测试：
 
-```C++
+```cpp
 // seastar/testing/seastar_test.cc
 void seastar_test::run() {
     // HACK: please see https://github.com/cloudius-systems/seastar/issues/10
@@ -111,7 +111,7 @@ void seastar_test::run() {
 
 而所有注册的测试通过`known_tests()`暴露给`test_runner`，由后者逐个调用`seastar_test::run()`完成测试：
 
-```C++
+```cpp
 // seastar/testing/test_runner.cc
 void test_runner::run_sync(std::function<future<>()> task) {
     exchanger<std::exception_ptr> e;
@@ -141,7 +141,7 @@ void test_runner::run_sync(std::function<future<>()> task) {
 
 gtest常见的方式就是采用宏`TEST()`定义一个test，或是采用`TEST_F()`定义一个text fixture，显然直接在gtest中采用协程的编程方式会报错，这是因为`TEST_F()`展开后我们编写的测试部分实际上是`void GTEST_TEST_CLASS_NAME_(test_suite_name, test_name)::TestBody()`的函数体：
 
-```C++
+```cpp
 // gtest/internal/gtest-internal.h
 
 #define GTEST_TEST_(test_suite_name, test_name, parent_class, parent_id)       \
@@ -181,7 +181,7 @@ gtest常见的方式就是采用宏`TEST()`定义一个test，或是采用`TEST_
 
 由于**Seastar所有的任务都是由其底层的reactor引擎来完成的**，因此单个测试也应该如此，从而我们希望每个gtest的test case实际上就是将定义的任务提交给Seastar并同步等待结果，Seastar为了方便测试提供了这种用法，从而允许外界线程能够等待Seastar执行完成某些任务：
 
-```C++
+```cpp
 // outside of Seastar, a.k.a. alien thread
 std::future<> fut = seastar::alien::submit_to(
     *seastar::alien::internal::default_instance,  // or use app_template to fetch an alien::instance
@@ -196,7 +196,7 @@ fut.wait();
 - 在gtest的测试线程内，原先`TestBody()`是完成一个测试任务，现在只是将我们定义的`SeastarBody()`提交给Seastar运行并等待结果，真正的测试逻辑都在后者中
 - 通过自定义宏来实现gtest测试Seastar中的程序
 
-```C++
+```cpp
 #define MY_TEST_(test_suite_name, test_name, parent_class, parent_id)          \
   static_assert(sizeof(GTEST_STRINGIFY_(test_suite_name)) > 1,                 \
                 "test_suite_name must not be empty");                          \
@@ -250,7 +250,7 @@ fut.wait();
 - `TearDown()`中我们向Seastar发送信号来停止执行，并等待Seastar完全退出，注意也通过`std::future`协调主线程等待reactor引擎的每个线程退出
 - 额外添加的`static void submit(std::function<seastar::future<>()> func)`用于方便的在默认shard上执行协程逻辑，可以使用在其他test suite的`SetUp/TearDown`中
 
-```C++
+```cpp
 class base : public ::testing::Environment {
  public:
   base(int argc, char** argv) : _argc(argc), _argv(argv) {}
@@ -321,7 +321,7 @@ int main(int argc, char **argv) {
 
 通过这种方式，我们就可以采用与gtest测试其他框架完全相同的方式来测试Seastar的函数，例如：
 
-```C++
+```cpp
 class component : public my_test_base {};
 
 MY_TEST_F(component, basic) {
@@ -332,7 +332,7 @@ MY_TEST_F(component, basic) {
 
 由于gtest中的`ASSERT_*`系列函数在失败时就会通过`return`返回，这与协程中的`co_return`违背，可以发现这些函数实际实现如下：
 
-```c++
+```cpp
 // gtest/gtest.h
 #define ASSERT_TRUE(condition) \
   GTEST_TEST_BOOLEAN_(condition, #condition, false, true, \
@@ -351,7 +351,7 @@ MY_TEST_F(component, basic) {
 
 其中所有`ASSERT_*`系列函数失败时依赖了`fail`参数即`GTEST_FATAL_FAILURE_`宏，而该宏就是简单的打印消息并返回，将此处的`return`替换为`co_return`就可以实现在协程函数体内执行`ASSERT_*`：
 
-```c++
+```cpp
 // gtest/internal/gtest-internal.h
 #define GTEST_FATAL_FAILURE_(message) \
   return GTEST_MESSAGE_(message, ::testing::TestPartResult::kFatalFailure)
@@ -359,7 +359,7 @@ MY_TEST_F(component, basic) {
 
 为了避免直接修改gtest的源代码，依然选择在前文定义`MY_TEST_`的位置覆盖这个宏的定义，从而我们的测试函数体内就可以使用`ASSERT_*`：
 
-```C++
+```cpp
 #ifdef GTEST_FATAL_FAILURE_
 #undef GTEST_FATAL_FAILURE_
 #endif
@@ -379,7 +379,7 @@ MY_TEST_F(component, basic) {
 
 1. 当实现一个test suite时会添加一些成员变量，这些成员变量的初始化可以通过`SetUp`中使用`submit`由Seastar来完成，但是需要注意**由Seastar线程创建的数据应该由相应的Seastar线程来销毁**，例如：
 
-    ```C++
+    ```cpp
     class segment_test : public ::testing::Test {
      protected:
       void SetUp() override {

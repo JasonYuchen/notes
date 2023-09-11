@@ -9,7 +9,7 @@ Only part of the changes are noted here.
   - 对于大括号直接初始化仅包含单个元素的，从该元素推导（而不会像C++11中推导为`std::initializer_list<T>`）
   - 对于大括号直接初始化包含多个元素的，无法推导类型
 
-  ```C++
+  ```cpp
   auto x1 = { 1, 2 };     // decltype(x1) is std::initializer_list<int>
   auto x2 = { 1, 2.0 };   // error: cannot deduce element type
   auto x3{ 1, 2 };        // error: not a single element
@@ -26,7 +26,7 @@ Only part of the changes are noted here.
     - 链式调用中严格从左到右求值`a(expA).b(expB).c(expC)`
     - 下述代码中均是先求值`a`再求值`b`：
 
-      ```C++
+      ```cpp
       a.b
       a->b
       a->*b
@@ -44,7 +44,7 @@ Only part of the changes are noted here.
   - **rvalue = xvalue + prvalue**：
   - **prvalue**：pure rvalue，没有名字的对象，不可以取地址，可以`move`走
   
-  ```C++
+  ```cpp
   class X { int a; };
   X{10} // this expression is prvalue
   X x;  // x is lvalue
@@ -55,7 +55,7 @@ Only part of the changes are noted here.
 
 - **分配对象时内存对齐**
 
-  ```C++
+  ```cpp
   class alignas(16) vec4 {
     float x, y, z, w;
   };
@@ -73,7 +73,7 @@ Only part of the changes are noted here.
   2. 提供了`std::tuple_size<>`和`get<N>()`方法的类（例如`std::pair`和`std::tuple`）
   3. 只有非静态公有成员变量的类
 
-  ```C++
+  ```cpp
   // 1.
   double myArray[3] = { 1.0, 2.0, 3.0 };
   auto [a, b, c] = myArray;
@@ -94,7 +94,7 @@ Only part of the changes are noted here.
 - **内联变量 Inline Variables**
   类成员的静态变量可以直接在头文件内声明并定义，而不需要在cpp文件内再定义，注意`constexpr`是隐式inline的，C++17保证所有编译单元都看到的同一份静态变量
   
-  ```C++
+  ```cpp
   struct MyClass {
     inline static int sValue = 999;
   };
@@ -105,7 +105,7 @@ Only part of the changes are noted here.
 - **类模板参数推导 Template Argument Deduction for Class Templates**
   模板函数的模板参数可以根据函数参数自动推导，这种方式拓展到了类模板，模板类的模板参数可以根据构造函数的参数自动推导
   
-  ```C++
+  ```cpp
   using namespace std::string_literals;
   std::pair myPair(42, "hellow world"s); // std::pair<int, std::string>
   std::array arr{1, 2, 3};               // std::array<int, 3>
@@ -113,7 +113,7 @@ Only part of the changes are noted here.
 
   编译器通过**推导规则Deduction Guides**来尝试推导模板类的模板参数，推导规则包含编译器隐式生成规则和用户自定义规则两类：
 
-  ```C++
+  ```cpp
   // custom deduction guide for std::array
   template<class T, class... U>
   array(T, U...) -> array<T, 1 + sizeof...(U)>;
@@ -131,7 +131,7 @@ Only part of the changes are noted here.
 - **折叠表达式 Fold Expressions**
   在可变参数模板variadic templates中采用折叠表达式的方式进行参数展开（一定程度上可以替代递归展开）
 
-  ```C++
+  ```cpp
   template<typename ...Args> auto sum2(Args ...args) {
     return (args + ...);
   }
@@ -158,7 +158,7 @@ Only part of the changes are noted here.
   - 假如传入的符合`std::is_integral_v<T>`，则`else`分支中的`execute(t)`由于依赖了`T t`因此会被移除，而`strange syntax`并不依赖，会被保留并执行编译，此时就可能因为语法问题编译出错
   - 在符合`std::is_integral_v<T>`的分支内`static_assert(sizeof(int) == 100)`由于不依赖`T t`因此总是会报错，可以改为`static_assert(sizeof(T) == 100)`从而只有此分支被保留时才会报错
 
-  ```C++
+  ```cpp
   template <typename T>
   void calculate(T t) {
     if constexpr (std::is_integral_v<T>) {
@@ -173,7 +173,7 @@ Only part of the changes are noted here.
 
   采用`if constexpr`可以**显著简化原先需要SFINAE、tag dispatching才能实现的模板代码**：
 
-  ```C++
+  ```cpp
   // SFINAE
   template <typename T>
   std::enable_if_t<std::is_integral_v<T>, T> simpleTypeInfo(T t) {
@@ -202,7 +202,7 @@ Only part of the changes are noted here.
 
 - `[[fallthrough]]`
   
-  ```C++
+  ```cpp
   switch (c) {
     case 'A':
       f();           // warning, fallthrough is perhaps a programmer error
@@ -216,7 +216,7 @@ Only part of the changes are noted here.
 
 - `[[maybe_unused]]`
 
-  ```C++
+  ```cpp
   static void impl1() {...} // compilers may warn about this
   [[maybe_unused]] static void impl2() {...} // suppressed
 
@@ -228,7 +228,7 @@ Only part of the changes are noted here.
 
 - `[[nodiscard]]`
 
-  ```C++
+  ```cpp
   [[nodiscard]] int compute();
   void test() {
     compute();  // warning, return value is discarded
@@ -243,7 +243,7 @@ Only part of the changes are noted here.
 
 - `[[deprecated("message")]]` or `[[deprecated]]`
 
-  ```C++
+  ```cpp
   namespace [[deprecated("use BetterUtils")]] GoodUtils {
     void doStuff();  // when used, warning: 'GoodUtils' is deprecated: use BetterUtils
   }
@@ -256,7 +256,7 @@ Only part of the changes are noted here.
 
 - **创建对象**
   
-  ```C++
+  ```cpp
   // empty:
   std::optional<int> oEmpty;
   std::optional<float> oFloat = std::nullopt;
@@ -284,7 +284,7 @@ Only part of the changes are noted here.
 - **返回对象**
   使用`std::optional`时需要特别注意返回对象的构造，采用统一初始化的方式会导致copy-elision失效：
 
-  ```C++
+  ```cpp
   std::optional<std::string> CreateString() {
     std::string str {"Hello Super Awesome Long String"};
     return {str}; // this one will cause a copy
@@ -312,7 +312,7 @@ Only part of the changes are noted here.
 - **创建对象**
   默认情况下`std::variant`会根据模板参数第一个类型进行默认初始化，假如第一个类型没有默认构造函数，可以传入`std::monostate`
 
-  ```C++
+  ```cpp
   // default initialisation: (the first type has to have a default ctor)
   std::variant<int, float> intFloat;
   // for first type does not have a default ctor, use monostate
@@ -340,7 +340,7 @@ Only part of the changes are noted here.
   - 采用`std::visit`来访问，参考[静态多态](https://github.com/JasonYuchen/notes/blob/master/cpp/polymorphism.md#%E9%B8%AD%E5%AD%90%E7%B1%BB%E5%9E%8B%E4%B8%8Estdvariant)
   - 当有多个`std::variant`需要访问时，可以只提供部分有效组合的重载，并**由generic lambda来处理其余情况**
 
-    ```C++
+    ```cpp
     std::variant<Pizza, Chocolate, Salami, IceCream> firstIngredient { IceCream() };
     std::variant<Pizza, Chocolate, Salami, IceCream> secondIngredient { Chocolate()};
     std::visit(overload{
@@ -360,7 +360,7 @@ Only part of the changes are noted here.
   与`union`类似，`std::variant`也基于可能包含最大的对象的空间，并额外加上簿记信息，同时也**不会发生动态内存分配（值语义）**
 - **实例：状态机**
   
-  ```C++
+  ```cpp
   struct DoorState {
     struct DoorOpened {};
     struct DoorClosed {};
@@ -387,7 +387,7 @@ Only part of the changes are noted here.
 
 - **创建对象**
 
-  ```c++
+  ```cpp
   // default initialisation:
   std::any a;
   // initialisation with an object:
@@ -408,7 +408,7 @@ Only part of the changes are noted here.
   - 读写访问，返回对象的引用，并在类型不匹配时抛出`std::bad_any_cast`
   - 读写访问，返回对象的指针，并在类型不匹配时返回`nullptr`
 
-  ```C++
+  ```cpp
   std::any_cast<MyType&>(var).Print();
   std::any_cast<MyType&>(var).a = 11;  // read/write
   std::any_cast<MyType&>(var).Print();
@@ -425,7 +425,7 @@ Only part of the changes are noted here.
 
 - **创建对象**
 
-  ```C++
+  ```cpp
   // the whole string:
   const char* cstr = "Hello World";
   std::string_view sv1 { cstr };
@@ -466,7 +466,7 @@ Only part of the changes are noted here.
   - 当无效转换时，`from_chars_result::ptr`指向`first`，`from_chars_result::ec`为`std::errc::invalid_argument`
   - 当越界时，`from_chars_result::ptr`指向第一个不符合的字符位置，`from_chars_result::ec`为`std::errc::result_out_of_range`
 
-  ```C++
+  ```cpp
   struct from_chars_result {
     const char* ptr;
     std::errc ec;
@@ -491,7 +491,7 @@ Only part of the changes are noted here.
   - 当出错时，`to_chars_result::ptr`指向`first`
   - 当越界时，`to_chars_result::ec`为`std::errc::value_too_large`
 
-  ```C++
+  ```cpp
   struct to_chars_result {
     char* ptr;
     std::errc ec;
@@ -512,7 +512,7 @@ Only part of the changes are noted here.
 - `boyer_moore_searcher`：完整版boyer moore算法，时间复杂度`best O(n/m) worst O(nm)`
 - `boyer_moore_horspool_searcher`：简化版boyer moore算法，时间复杂度相同
 
-```C++
+```cpp
 template<class ForwardIterator, class Searcher>
 ForwardIterator search(ForwardIterator first, ForwardIterator last, const Searcher& searcher);
 
@@ -536,7 +536,7 @@ const auto it = std::search(
 
 - **`std::byte`**
 
-  ```C++
+  ```cpp
   constexpr std::byte b{1};
   constexpr std::byte c{255};
   static_assert(std::to_integer<int>(b) == 0x01);
@@ -546,7 +546,7 @@ const auto it = std::search(
   - **Splicing**
     将节点从基于树的容器（`std::map/std::set`）高效的移动至另一个容器且避免额外的内存开销
 
-    ```C++
+    ```cpp
     std::set<std::string> setNames;
     setNames.emplace("John");
     std::set<std::string> outSet;
@@ -559,7 +559,7 @@ const auto it = std::search(
     - `try_emplace()`：若相应的key已经存在，在不会有任何影响也不会`move`参数，若不存在则等同于`emplace`
     - `insert_or_assign()`：不像`operator[]`依赖默认构造函数的存在，且会返回是否是inserted
 
-    ```C++
+    ```cpp
     std::map<std::string, std::string> m;
     m["Hello"] = "World";
     std::string s = "C++";
@@ -585,7 +585,7 @@ const auto it = std::search(
 
 - **`emplace`类的操作会返回引用**
   
-  ```C++
+  ```cpp
   // since C++11 and until C++17 for std::vector
   template< class... Args >
   void emplace_back( Args&&... args );
@@ -604,7 +604,7 @@ const auto it = std::search(
 
 - **采样算法**
 
-  ```C++
+  ```cpp
   std::vector<int> v { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
   std::vector<int> out;
   std::sample(v.begin(), // range start

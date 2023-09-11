@@ -258,7 +258,7 @@ X在尚未完成两阶段Paxos时，Y就介入采用更大的提案号更新了a
 
 即acceptor只能响应携带有提案号大于自身已经记录的最大提案号的prepare请求，而在Phxpaxos的实现中却采用了`>=`：
 
-```c++
+```cpp
 int Acceptor::OnPrepare(const PaxosMsg &oPaxosMsg)
 { 
   // skip
@@ -283,7 +283,7 @@ int Acceptor::OnPrepare(const PaxosMsg &oPaxosMsg)
 
 PhxPaxos中通过**首先持久化prepare请求，随后再广播给其他acceptors，重启后会读取持久化状态避免重用提案号**来避免上述场景的发生：
 
-```C++
+```cpp
 int Base::BroadcastMessage(const PaxosMsg &oPaxosMsg, const int iRunType, const int iSendType)
 {
     // skip

@@ -10,7 +10,7 @@ seastar作为一个高性能异步编程框架，天然适合通过协程来使�
 
 示例使用如下，摘自[seastar教程](https://github.com/scylladb/seastar/blob/master/doc/tutorial.md#coroutines)：
 
-```C++
+```cpp
 #include <seastar/core/coroutine.hh>
 
 seastar::future<int> read();
@@ -48,7 +48,7 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
 
 1. 在协程中等待一个对象，会首先需要构造出对应的`Awaiter`对象，[见此](https://github.com/JasonYuchen/notes/blob/master/coroutine/Cppcoro_Understanding_co_await.md#1-obtaining-the-awaiter)，seastar中的协程`promise`类型并沒有定义`await_transform`，则此时`future`就会通过重载的`co_await`转换为`Awaiter`对象
 
-    ```C++
+    ```cpp
     template<typename... T>
     auto operator co_await(future<T...> f) noexcept {
         return internal::awaiter<T...>(std::move(f));
@@ -57,7 +57,7 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
 
 2. 随后就会由编译器转换为[这种执行流](https://github.com/JasonYuchen/notes/blob/master/coroutine/Cppcoro_Understanding_co_await.md#2-awaiting-the-awaiter)
 
-    ```c++
+    ```cpp
     // 1. awaiter.await_ready
     bool awaiter::await_ready() const noexcept {
         // 定义在<seastar/core/preempt.hh>中的need_preempt用来判断是否抢占并将
@@ -91,7 +91,7 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
 
 3. 返回[reactor引擎的执行流](https://github.com/JasonYuchen/notes/blob/master/seastar/Reactor.md#class-reactor)后，这个future对应的task最终在`reactor::run_tasks(task_queue &tq)`被实际执行：`engine().run() -> run_some_tasks() -> run_tasks`
 
-    ```C++
+    ```cpp
     void reactor::run_tasks(task_queue& tq) {
         // ...
         auto tsk = tasks.front();
@@ -125,7 +125,7 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
 1. 同上
 2. 同上，但是会走入`_future.set_coroutine(hndl.promise());`分支，此时`future`还未就绪，到这里控制流就会回到caller，即`reactor::run`
 
-    ```C++
+    ```cpp
     void internal::future_base::set_coroutine(task& coroutine) noexcept {
         assert(_promise);
         _promise->_task = &coroutine;
@@ -134,7 +134,7 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
 
 3. 当`future`的条件最终满足时，reactor引擎会调用`promise::set_value`将结果提供给`future`
 
-    ```c++
+    ```cpp
     template <typename... A>
     void promise_base_with_type::set_value(A&&... a) noexcept {
         if (auto *s = get_state()) {
@@ -162,7 +162,7 @@ seastar对协程的支持主要在`<seastar/core/coroutine.hh>`中，略过模�
 
 只采用`co_await`单次只能等待一个协程，并且若有多个操作时就需要顺序依次`co_await`，限制了一定的并发性（例如**当需要执行多个I/O请求时，顺序依次等待每一个I/O操作的吞吐量不如一次性等待多个I/O操作，这些I/O操作就有更大的机会被批量执行**）seastar允许一次等待多个协程执行完成（将协程转换成多个"子协程"即**seastar fibers**）：
 
-```C++
+```cpp
 seastar::future<int> parallel_sum(int key1, int key2) {
     int [a, b] = co_await seastar::coroutine::all(
         [&] { return read(key1); },
@@ -177,7 +177,7 @@ seastar::future<int> parallel_sum(int key1, int key2) {
 - 处理过程中每一个未就绪的任务都会通过内部类`intermediate_task`进行等待，一旦**任务完成通过回调继续处理下一个任务**
 - 按`all`的构造顺序返回所有结果，并跳过其中返回值是`void`的任务，但是对于存在异常的情况，"随机"返回一个异常（实际实现是最后一个异常）
 
-```c++
+```cpp
 /// Wait for serveral futures to complete in a coroutine.
 ///
 /// `all` can be used to launch several computations concurrently
@@ -305,7 +305,7 @@ public:
 
 如果某个计算密集的任务中并不包含`co_await`点，就可能导致reactor引擎无法通过抢占的方式来避免饥饿，此时就**需要调用者主动调用`co_await maybe_yield();`来检查是否需要让渡出执行权**，需要注意的是这个过程中也发生了coroutine的各种判断，因此避免在一个计算开销并不高的多次循环中调用，而是在计算开销较高且时间长的循环中使用，例如：
 
-```C++
+```cpp
 seastar::future<int> long_loop(int n) {
     float acc = 0;
     for (int i = 0; i < n; ++i) {  // large n
@@ -318,7 +318,7 @@ seastar::future<int> long_loop(int n) {
 
 从上述分析可知，`maybe_yield()`的实现非常简单，**只需要在`await_ready()`内部判断是否需要被抢占即可**，其他逻辑与常规`task`类似，如下：
 
-```C++
+```cpp
 struct maybe_yield_awaiter final : task {
     using coroutine_handle_t = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<void>;
 
@@ -355,7 +355,7 @@ struct maybe_yield_awaiter final : task {
 
 对任务超时的限制实际上**并不会在超时时取消任务直接返回，而是在任务完成时检查任务的完成时间是否超时**，如果超时则将相应的`future`设置为超时异常，其应该等同于`co_await task`结果后判断时间差，若超时就返回`timeout exception`，否则就返回`co_await task`的结果
 
-```c++
+```cpp
 // Wait for either a future, or a timeout, whichever comes first
 // Note that timing out doesn't cancel any tasks associated with the original future.
 template<typename ExceptionFactory = default_timeout_exception_factory, typename Clock, typename Duration, typename... T>
@@ -391,7 +391,7 @@ future<T...> with_timeout(std::chrono::time_point<Clock, Duration> timeout, futu
 
 seastar中的`future`可以通过`.then(func)`的方式要求在该`future`就绪时将其结果传递给`func`从而实现串联执行的语法，注意**更推荐采用协程的写法而非`.then()`，协程有更多优越性**，例如：
 
-```C++
+```cpp
 seastar::future<int> slow() {
     using namespace std::chrono_literals;
     return seastar::sleep(100ms).then([] { return 3; });
@@ -408,7 +408,7 @@ seastar底层通过reactor引擎来执行tasks，那么`.then()`的串联执行�
 
 1. `future::then`在一些包装后，实际调用了`future::then_impl`如下，分当前`future`就绪与否分别处理
 
-    ```c++
+    ```cpp
     template <typename Func, typename Result = futurize_t<internal::future_result_t<Func, T SEASTAR_ELLIPSIS>>>
     Result future::then_impl(Func&& func) noexcept {
         using futurator = futurize<internal::future_result_t<Func, T SEASTAR_ELLIPSIS>>;
@@ -427,7 +427,7 @@ seastar底层通过reactor引擎来执行tasks，那么`.then()`的串联执行�
 
 2. 在`future::then_impl_nrvo`中会根据`.then(func)`的传入`func`其返回类型构造一个新的`future`来返回
 
-    ```C++
+    ```cpp
     template <typename Func, typename Result>
     Result future::then_impl_nrvo(Func&& func) noexcept {
         // 构造新的future对象
@@ -453,7 +453,7 @@ seastar底层通过reactor引擎来执行tasks，那么`.then()`的串联执行�
 
 3. 在`future::schedule`中首先使用`continuation`包装了下一个运行的函数`wrapper`，随后在`future_base::schedule`中将**当前`future`对应的`promise`对象的`_state/_task`更新为下一个函数的包装**，从而能够当前`future`就绪时（即对应的`promise::set_value`被调用）直接调度对应的`continuation` —— **链式关系**
 
-    ```C++
+    ```cpp
     template <typename Pr, typename Func, typename Wrapper>
     void future::schedule(Pr&& pr, Func&& func, Wrapper&& wrapper) noexcept {
         memory::scoped_critical_alloc_section _;
@@ -475,7 +475,7 @@ seastar底层通过reactor引擎来执行tasks，那么`.then()`的串联执行�
 
 4. 与[此处](#2-当这个future对象尚未完成时)中的第3步相同，在链式关系的前一个任务完成时就会执行`.then(func)`传入的函数
 
-    ```c++
+    ```cpp
     template <typename... A>
     void promise_base_with_type::set_value(A&&... a) noexcept {
         if (auto *s = get_state()) {
@@ -512,7 +512,7 @@ seastar底层通过reactor引擎来执行tasks，那么`.then()`的串联执行�
 
 以`seastar::sleep`为例（定义在`<seastar/core/sleep.hh>`），可以看出`seastar`是如何异步执行任务的
 
-```c++
+```cpp
 template <typename Clock = steady_clock_type, typename Rep, typename Period>
 future<> sleep(std::chrono::duration<Rep, Period> dur) {
     struct sleeper {
@@ -534,7 +534,7 @@ future<> sleep(std::chrono::duration<Rep, Period> dur) {
 
 1. 首先构造了`sleeper`对象，对象内的`tmr.arm(dur)`将异步任务（即超时后唤醒）提交给reactor引擎
 
-    ```C++
+    ```cpp
     template <typename Clock>
     inline
     void timer<Clock>::arm(time_point until, std::optional<duration> period) noexcept {
@@ -550,7 +550,7 @@ future<> sleep(std::chrono::duration<Rep, Period> dur) {
 
 **协程会自动捕获异常并放入到返回的`future`中**，当`co_await`的函数抛出异常时，协程也会直接将异常继续向上抛出：
 
-```C++
+```cpp
 seastar::future<> function_returning_an_exceptional_future();
 
 seastar::future<> exception_handling() {
@@ -566,7 +566,7 @@ seastar::future<> exception_handling() {
 
 对于返回的泛型非空时，即`future<T>`而非`future<>`时，传递异常更**推荐使用以下的返回异常而不使用抛出异常**`throw`（受限于编译器，`future<>`不支持这种做法）：
 
-```C++
+```cpp
 seastar::future<int> exception_propagating() {
     std::exception_ptr eptr;
     try {

@@ -25,7 +25,7 @@ Actor模型中需要识别每个Actor，通过识别对方进行消息通信与�
 
 1. 当某个CPU的线程希望另一个CPU上的线程执行任务时，就可以调用`submit_to`
 
-    ```C++
+    ```cpp
     template <typename Func>
     static futurize_t<std::result_of_t<Func()>> smp::submit_to(unsigned t, Func&& func) noexcept {
         return submit_to(t, default_smp_service_group(), std::forward<Func>(func));
@@ -34,7 +34,7 @@ Actor模型中需要识别每个Actor，通过识别对方进行消息通信与�
 
 2. `submit_to`将需要调用的函数加入到与对端CPU通信的队列`smp_message_queue`中
 
-    ```C++
+    ```cpp
     template <typename Func>
     static futurize_t<std::result_of_t<Func()>> smp::submit_to(unsigned t, smp_submit_to_options options, Func&& func) noexcept {
         using ret_type = std::result_of_t<Func()>;
@@ -56,7 +56,7 @@ Actor模型中需要识别每个Actor，通过识别对方进行消息通信与�
 
 3. 构造一个`async_work_item`包装待执行的任务并提交流量控制检测，并且返回一个`future`，而`async_work_item`也继承了`task`，因此其`run_and_dispose`在任务被执行时会被reactor引擎调用
 
-    ```C++
+    ```cpp
     template <typename Func>
     futurize_t<std::result_of_t<Func()>> smp_message_queue::submit(shard_id t, smp_submit_to_options options, Func&& func) noexcept {
         memory::scoped_critical_alloc_section _;
@@ -69,7 +69,7 @@ Actor模型中需要识别每个Actor，通过识别对方进行消息通信与�
 
 4. 基于信号量，通过`smp_service_group`对调用进行**流量控制**，若允许调用就将任务加入缓冲队列，并在`move_pending`中真正加入对端CPU的执行队列`_pending`
 
-    ```C++
+    ```cpp
     void smp_message_queue::submit_item(shard_id t, smp_timeout_clock::time_point timeout, std::unique_ptr<smp_message_queue::work_item> item) {
         // matching signal() in process_completions()
         auto ssg_id = internal::smp_service_group_id(item->ssg);
@@ -97,7 +97,7 @@ Actor模型中需要识别每个Actor，通过识别对方进行消息通信与�
 
 5. 在reactor引擎中会获取各类待执行任务，磁盘网络I/O，异步lambda任务等等，也包括了其他CPU发送过来的任务，这里省略reactor执行过程，见`smp::poll_queues()`和`reactor::run_some_tasks()`，而执行任务就会调用到`task->run_and_dispose()`，从第3步可以看出，提交的`async_work_item`也实现了这个方法
 
-    ```C++
+    ```cpp
     virtual void async_work_item::run_and_dispose() noexcept override {
         // _queue.respond() below forwards the continuation chain back to the
         // calling shard.
@@ -128,7 +128,7 @@ Actor模型中需要识别每个Actor，通过识别对方进行消息通信与�
 
 6. 与远端CPU执行`task->run_and_dispose()`不同，**本地CPU消费**已经完成的`work_item`时会通过`smp_message_queue::process_completions`消费完成队列，进而调用了`async_work_item::complete()`
 
-    ```C++
+    ```cpp
     size_t smp_message_queue::process_completions(shard_id t) {
         auto nr = process_queue<prefetch_cnt*2>(_completed, [t] (work_item* wi) {
             wi->complete();

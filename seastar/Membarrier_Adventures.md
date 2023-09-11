@@ -12,7 +12,7 @@ seastar作为一个全异步编程框架，使用[reactor](Reactor.md)的范式�
 
 一种最简单的消息队列实现就是采用锁和条件变量来保护队列，当没有数据时就等待，类似如下方式：
 
-```C++
+```cpp
 // producer
 task_queue.submit(task);
 
@@ -35,7 +35,7 @@ while (true) {
 
 事件循环现在普遍的非阻塞I/O编程范式，reactor模式就是典型的做法，在有任务时就不会等待而是一直处理，没有任务时就等待事件唤醒，在Linux下通常使用`epoll`来实现事件循环（例如`libevent, libuv, libev, muduo`），基本流程如下（此时的`task_queue`可以是无锁的）：
 
-```C++
+```cpp
 // producer
 task_queue.submit(task);
 // e.g. ::write(fd, one, sizeof(one)) to make ::epoll_wait() return
@@ -55,7 +55,7 @@ while (true) {
 
 由于生产者和消费者分属两个线程，因此**使用原子变量作为标记位记录状态就可以简单避免系统调用**，并且在高频任务处理下实际上不需要进入`sleep`而是采用轮询的方式（**此时轮询polling比中断interruption更为高效**）：
 
-```C++
+```cpp
 atomic_bool sleep;
 
 // producer
@@ -119,7 +119,7 @@ not wake_up()
 
 seastar中consumer侧即将sleep阶段的代码如下，可以注意到使用了`std::memory_order_relaxed`设置`sleep = true`之后使用`try_systemwide_memory_barrier()`进行插入内存屏障的操作：
 
-```C++
+```cpp
 // src/core/reactor.cc reactor::smp_pollfn
 virtual bool try_enter_interrupt_mode() override {
     // systemwide_memory_barrier() is very slow if run concurrently,
@@ -144,7 +144,7 @@ virtual bool try_enter_interrupt_mode() override {
 
     因此**kernel必须主动失效对应的TLBs，而每个core都有自己的TLB，这就使得kernel必须发送消息给每个core的TLB并等待确认**，作为这个过程的副作用，kernel生成了一个完全内存屏障，利用这种方式使得consumer在producers上插入内存屏障的代码如下：
 
-    ```C++
+    ```cpp
     // src/core/systemwide_memory_barrier.cc
     void systemwide_memory_barrier() {
         // 这里是尝试使用第二种更高效的方法，但并不是所有系统上都支持
@@ -188,7 +188,7 @@ virtual bool try_enter_interrupt_mode() override {
 
     在较新的Linux内核中引入了新的系统调用`membarrier()`以及一个更加新的选项`MEMBARRIER_CMD_PRIVATE_EXPEDITED`，直接就完成了在所有核心上插入内存屏障的功能，并且性能表现比方式一更快
 
-    ```C++
+    ```cpp
     // src/core/systemwide_memory_barrier.cc
     static bool try_native_membarrier() {
         if (has_native_membarrier) {
@@ -201,7 +201,7 @@ virtual bool try_enter_interrupt_mode() override {
 
 回到producer一侧，此时producer已经不需要插入完全内存屏障了，因此只使用`std::memory_order_relaxed`即可，但是这里**依然需要编译器屏障`std::atomic_signal_fence()`来确保producer侧的指令不会被编译器重排**，前述方法都是在应对硬件指令重排
 
-```C++
+```cpp
 // src/core/reactor.cc smp_message_queue::lf_queue
 void maybe_wakeup() {
     // Called after lf_queue_base::push().

@@ -33,7 +33,7 @@ Sort-merge join最主要的开销就在sorting阶段，而采用归并排序的s
 
 所有的排序过程可以被编译成一系列简单的`min/max`操作，且带有**有限的数据依赖关系并没有分支**，从而高度有利于SIMD和现代CPU架构：
 
-```C++
+```cpp
 e = min (a, b)
 f = max (a, b)
 g = min (c, d)

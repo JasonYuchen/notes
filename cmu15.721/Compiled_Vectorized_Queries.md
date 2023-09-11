@@ -20,7 +20,7 @@
 
 对于Typer来说，**算子可以是任意的开发者认为合适的实现，可以处理一行数据中多个类型的列**，并会被编译成更高效的生成代码，如下第一种方式，所有谓词都可以在循环内直接求值
 
-```C++
+```cpp
 /// Both predicates checked at once
 vec<int> sel_eq_row(vec<string> col, vec<int> tir)
   vec<int> res;
@@ -32,7 +32,7 @@ vec<int> sel_eq_row(vec<string> col, vec<int> tir)
 
 对于Tectorwise来说，由于**向量化算法只能处理相同类型的一列内的数据**，因此当对一行数据有多个谓词需要判断时，就必须对每一列都扫描并执行一遍，这里通常也会引入SIMD等优化技术来尽可能提高每个"primitive"的性能
 
-```C++
+```cpp
 /// Each predicate checked in one primitive
 vec<int> sel_eq_string(vec<string> col, string o)
   vec<int> res;
@@ -53,7 +53,7 @@ vec<int> sel_eq_int(vec<int> tir, int o, vec<int> s)
 
 对于Typer来说，直接采用所有数据构造散列表，随后在紧凑循环中完成连接即可
 
-```C++
+```cpp
 /// Generated hash join
 query(...)
   // build hash table
@@ -71,7 +71,7 @@ query(...)
 
 对于Tectorwise来说，需要首先构造散列表，随后采用`probeHash_`这个primitive来完成批量探测，同样需要采用`compareKeys_`来完成批量比较，并根据结果最后使用`buildGather_`来批量整合完成连接的数据
 
-```C++
+```cpp
 /// Vectorized hash join
 class HashJoin
   Primitives probeHash_, compareKeys_, buildGather_;

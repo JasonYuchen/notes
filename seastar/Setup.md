@@ -23,7 +23,7 @@
 
    - 编译过程中可能出现与`boost::test`相关的错误，[原因见此](https://github.com/boostorg/test/pull/252)，快速修改方式如下：
 
-        ```c++
+        ```cpp
         // include/boost/test/impl/test_tools.ipp: line 127
         ostr << (t ? reinterpret_cast<char const*>(t) : "null string" );
         ```

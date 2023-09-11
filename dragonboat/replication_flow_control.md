@@ -9,7 +9,7 @@ Raft的一个远端节点作为follower可能处于多种状态，例如无响�
 - `Replicate`：leader会乐观的向处于`Replicate`的节点发送大量日志进行replication，此时集群通常处于网络正常、节点正常响应、没有进行快照的良好状态
 - `Snapshot`：leader不会向处于`Snapshot`的远端节点发送任何信息，通常因为远端节点日志远落后于leader导致必须发送snapshot才能跟随replication，当处于`Snapshot`时leader会在发送完snapshot后将状态修改为`Wait`
 
-```C++
+```cpp
 class Remote {
  public:
   enum State : uint8_t {

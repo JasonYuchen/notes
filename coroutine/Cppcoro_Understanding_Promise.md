@@ -10,7 +10,7 @@
 
 Promise对象通过定义一系列methods，这些methods**在coroutine的特殊点被调用，从而控制coroutine的行为**，每次调用一个coroutine时，都会在coroutine frame中创建一个promise实例，当在函数体`<body-statements>`中使用了任一协程关键词时，编译器就会将函数体转换成形如下述的代码并在相应位置调用promise的方法：
 
-```C++
+```cpp
 {
   co_await promise.initial_suspend();
   try
@@ -70,7 +70,7 @@ FinalSuspend:
 
 #### 自定义栈帧分配 Customising coroutine frame memory allocation
 
-```C++
+```cpp
 struct my_promise_type
 {
   void* operator new(std::size_t size)
@@ -113,7 +113,7 @@ struct my_promise_type
 
 在完成promise构造后，协程首先会调用`promise.get_return_object()`来获取返回对象`return-object`，大致流程如下：
 
-```C++
+```cpp
 // Pretend there's a compiler-generated structure called 'coroutine_frame'
 // that holds all of the state needed for the coroutine. It's constructor
 // takes a copy of parameters and default-constructs a promise object.
@@ -155,7 +155,7 @@ T some_coroutine(P param)
 
 当协程遇到`co_return`时，就会转换为`promise.return_void()`或`promise.return_value(<expr>)`，后跟随一个`goto FinalSuspend;`如下：
 
-```C++
+```cpp
 co_return;
 -> promise.return_void();
 
@@ -186,7 +186,7 @@ co_return <expr>;
 
 **promise的类型由`std::coroutine_traits`类来决定**，例如有协程`task<float> foo(std::string x, bool flag)`，则编译器就会通过`typename coroutine_traits<task<float>, std::string, bool>::promise_type`来推断promise的类型，对于类的协程成员函数，对象本身的类型也作为模板参数传给`std::coroutine_traits`：
 
-```C++
+```cpp
 task<void> my_class::method1(int x) const;
 -> typename coroutine_traits<task<void>, const my_class&, int>::promise_type;
 
@@ -196,7 +196,7 @@ task<foo> my_class::method2() &&;
 
 而在`std::coroutine_traits`中，默认的`promise_type`通过寻找协程函数返回值的嵌套`promise_type`来获得，大致如下：
 
-```C++
+```cpp
 namespace std
 {
   template<typename RET, typename... ARGS>
@@ -209,7 +209,7 @@ namespace std
 
 因此对于协程的返回值，可以**通过自己在返回值类型内部定义嵌套类`promise_type`**来控制编译器使用自己定义的promise类型：
 
-```C++
+```cpp
 template<typename T>
 struct task
 {
@@ -220,7 +220,7 @@ struct task
 
 另外对于无法自己控制的返回值类型，例如协程返回`std::optional<T>`，则可以**通过特化`coroutine_traits`来指定对应的promise类型**：
 
-```C++
+```cpp
 namespace std
 {
   template<typename T, typename... ARGS>
@@ -243,7 +243,7 @@ resume或destroy一个协程时，往往需要一定机制来**识别协程帧�
 
 - **通常不是awaitable的类型也可以awaiting**，例如`std::optional<T>`
 
-    ```C++
+    ```cpp
     template<typename T>
     class optional_promise
     {
@@ -270,7 +270,7 @@ resume或destroy一个协程时，往往需要一定机制来**识别协程帧�
 
 - **显式禁止一些类型被awaiting**，即`await_transform`被禁止
 
-    ```C++
+    ```cpp
     template<typename T>
     class generator_promise
     {
@@ -285,7 +285,7 @@ resume或destroy一个协程时，往往需要一定机制来**识别协程帧�
 
 - **修改awaitable对象的实际awaiting行为**，例如要求一个`co_await`总是被同一个executor执行，例子来自cppcoro
 
-    ```C++
+    ```cpp
     template<typename T, typename Executor>
     class executor_task_promise
     {
@@ -310,7 +310,7 @@ resume或destroy一个协程时，往往需要一定机制来**识别协程帧�
 
 注意与`co_await`不同的是，**`co_await`需要显式定义`await_transform() = delete`来禁止**默认的`co_await`支持，**而`co_yield`没有默认的行为，需要显式定义`yield_value()`来支持**`co_yield`支持
 
-```C++
+```cpp
 template<typename T>
 class generator_promise
 {

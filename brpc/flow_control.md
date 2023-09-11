@@ -73,7 +73,7 @@ max\_concurrency = max\_qps \times ((2+\alpha) \times min\_latency - avg\_latenc
 
 同样是考虑到抖动影响，并且减少采样延迟带来的开销，对于更易受抖动影响的`min_latency`采用[指数移动平均Exponential Moving Average, EMA](https://en.wikipedia.org/wiki/Moving_average#Exponential_moving_average)进行平滑处理，参考代码如下：
 
-```C++
+```cpp
 if (latency > min_latency) {
     min_latency = ema_alpha * latency + (1 - ema_alpha) * min_latency;
 }
@@ -94,7 +94,7 @@ if (latency > min_latency) {
 
 **最大流量`max_qps`的计算也会进行EMA处理**以避免抖动带来的影响：
 
-```c++
+```cpp
 if (current_qps > max_qps) {
     max_qps = current_qps;
 } else {

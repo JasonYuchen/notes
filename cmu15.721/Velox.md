@@ -49,7 +49,7 @@ Velox Vector与Apache Arrow基本兼容，主要在以下三方面有差异：
 - **Strings**
   采用了HyPer的做法
   
-  ```c++
+  ```cpp
   struct StringView {
     uint32_t size_;
     char prefix_[4];

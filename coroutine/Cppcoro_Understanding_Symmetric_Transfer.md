@@ -17,7 +17,7 @@
 
 当编译器遇到返回`std::coroutine_handle<T>`的`await_suspend`时，就会生成如下执行流（返回`void`和`bool`的情况不变）
 
-```c++
+```cpp
 {
   decltype(auto) value = <expr>;
   decltype(auto) awaitable =
@@ -52,7 +52,7 @@
 - the call is **not inside a try/catch block**.
   由于用户提供的协程代码都被一个`try/catch`所包围，因此编译器在实现此部分时通过特别的操作将`.resume()`放置在异常处理的代码块外，[见此](Cppcoro_Understanding_the_Compiler_Transform.md#step-10-implementing-unhandled_exception)
 
-```c++
+```cpp
 void std::coroutine_handle<void>::resume() const {
     __coroutine_state* s = state_;
     do {
@@ -63,7 +63,7 @@ void std::coroutine_handle<void>::resume() const {
 
 ## Symmetric Transfer as the Universal Form of `await_suspend`
 
-```c++
+```cpp
 void my_awaiter::await_suspend(std::coroutine_handle<> h) {
   this->coro = h; // the next/parent coroutine we want to resume, call h.resume() when this is done
   enqueue(this);  // executing this task, and call resume later
@@ -87,7 +87,7 @@ std::noop_coroutine_handle my_awaiter::await_suspend(
 }
 ```
 
-```c++
+```cpp
 bool my_awaiter::await_suspend(std::coroutine_handle<> h) {
   this->coro = h;
   if (try_start(this)) {

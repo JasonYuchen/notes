@@ -45,7 +45,7 @@
 
 最简单的方式就是将对象所有权传递给等待执行的异步任务，从而任意时刻异步任务需要执行时对象一定有效，并且当任务执行结束、或是因异常被跳过执行都会及时释放
 
-```C++
+```cpp
 seastar::future<> slow_op(std::vector<int> v) {
     // v is not copied again, but instead moved:
     return seastar::sleep(10ms).then([v = std::move(v)] { /* do something with v */ });
@@ -58,7 +58,7 @@ seastar::future<> slow_op(std::vector<int> v) {
 
 当以引用的方式传入对象给异步编程任务时，调用者必须确保直到任务结束，传入的引用始终有效，seastar提供了`do_with()`方法来确保传入的对象生命周期与任务一样，`do_with()`接受任意多的右值对象，并且后面的任务必须接受引用参数：
 
-```C++
+```cpp
 seastar::future<> f() {
     T obj; // wrong! will be destroyed too soon!
     return slow_op(obj);
@@ -96,7 +96,7 @@ seastar还额外提供了更加轻量的`seastar::lw_shared_ptr`，通过不支�
 
 seastar提供了`seastar::thread`（有栈空间）以及`seastar::async`来允许类似同步的代码写法：
 
-```C++
+```cpp
 seastar::future<> slow_incr(int i) {
     return seastar::async([i] {
         seastar::sleep(10ms).get();
@@ -124,7 +124,7 @@ seastar中的continuation通常非常简短，并通过`.then()`串联起非常�
 
 采用`repeat()`的方式来循环执行一段continuation直到收到`stop_iteration`对象，并通过该对象来判断是否继续循环执行：
 
-```C++
+```cpp
 seastar::future<int> recompute_number(int number);
 
 seastar::future<> push_until_100(seastar::lw_shared_ptr<std::vector<int>> queue, int element) {
@@ -144,7 +144,7 @@ seastar::future<> push_until_100(seastar::lw_shared_ptr<std::vector<int>> queue,
 
 `do_until()`与`repeat()`类似，但是`do_until()`需要显式传入判断循环终止的条件
 
-```C++
+```cpp
 seastar::future<int> recompute_number(int number);
 
 seastar::future<> push_until_100(seastar::lw_shared_ptr<std::vector<int>> queue, int element) {
@@ -160,7 +160,7 @@ seastar::future<> push_until_100(seastar::lw_shared_ptr<std::vector<int>> queue,
 
 `do_for_each()`相当于常规的`for`循环，可以通过一个范围或是一对迭代器来指定运行范围，并且总是在前一个元素执行完毕才会开始执行后一个元素，循环的顺序性是保证的
 
-```C++
+```cpp
 seastar::future<> append(seastar::lw_shared_ptr<std::vector<int>> queue1, seastar::lw_shared_ptr<std::vector<int>> queue2) {
     return seastar::do_for_each(queue2, [queue1] (int element) {
         queue1->push_back(element);
@@ -192,7 +192,7 @@ seastar::future<> do_for_all(std::vector<int> numbers) {
 
 有时候所有任务都添加进队列会引起过高的并发性反而导致性能劣化等问题，因此可以通过`max_concurrent_for_each()`并传入期望最高的并发度数量来限制并发度
 
-```C++
+```cpp
 seastar::future<> flush_all_files(seastar::lw_shared_ptr<std::vector<seastar::file>> files, size_t max_concurrent) {
     return seastar::max_concurrent_for_each(files, max_concurrent, [] (seastar::file f) {
         return f.flush();
@@ -204,7 +204,7 @@ seastar::future<> flush_all_files(seastar::lw_shared_ptr<std::vector<seastar::fi
 
 采用`when_all()`可以发起并等待多个异步任务（必须是**右值**），并且这**一系列任务的结果是一个tuple会作为`when_all()`的返回值**，当不需要结果时可以使用`.discard_result()`，或是在下一个任务中使用这个tuple，如下：
 
-```C++
+```cpp
 future<> f() {
     using namespace std::chrono_literals;
     future<int> slow_two = sleep(2s).then([] { return 2; });
@@ -222,7 +222,7 @@ future<> f() {
 
 当任务有可能抛出异常时，`when_all()`依然会**等到所有子任务执行结束**，异常依然会被包含在tuple中返回（若不通过`.ignore_ready_future()`忽略带有异常的结果，就会记录一条异常被忽略的日志）：
 
-```C++
+```cpp
 future<> f() {
     using namespace std::chrono_literals;
     future<> slow_success = sleep(1s);
@@ -240,7 +240,7 @@ future<> f() {
 
 seastar提供了更易于使用的`when_all_succeed()`，当**所有子任务都成功时，直接将结果提供给后续的任务**而不需要再逐个判断是否成功：
 
-```C++
+```cpp
 future<> f() {
     using namespace std::chrono_literals;
     return when_all_succeed(
@@ -255,7 +255,7 @@ future<> f() {
 
 对于`when_all_succeed()`而言，需要使用`handle_exception()`来处理可能抛出的异常：
 
-```C++
+```cpp
 future<> f() {
     using namespace std::chrono_literals;
     return when_all_succeed(
@@ -277,7 +277,7 @@ future<> f() {
 
 采用`thread_local`的方式使得`g()`内部限制最大并发执行量，并且semaphore也是每个shard相互独立的
 
-```C++
+```cpp
 seastar::future<> g() {
     static thread_local seastar::semaphore limit(100);
     return limit.wait(1).then([] {
@@ -296,7 +296,7 @@ seastar::future<> g() {
 
 显然当执行的任务更多，逻辑越来越复杂的情况下合理的维护semaphore也愈加困难，而在**C++中采用RAII语义**能更简洁的确保异常安全，**seastar提供了`seastar::with_semaphore()`来确保异常情况下计数器的值都被正确维护**：
 
-```C++
+```cpp
 seastar::future<> g() {
     static thread_local seastar::semaphore limit(100);
     return seastar::with_semaphore(limit, 1, [] {
@@ -307,7 +307,7 @@ seastar::future<> g() {
 
 另外也可以使用`seastar::get_unites()`返回特殊的unit对象来确保计数器正常：
 
-```C++
+```cpp
 seastar::future<> g() {
     static thread_local semaphore limit(100);
     return seastar::get_units(limit, 1).then([] (auto units) {
@@ -320,7 +320,7 @@ seastar::future<> g() {
 
 semaphore支持传入任意数值，因此也可以用来限制诸如内存等资源的使用：
 
-```C++
+```cpp
 seastar::future<> using_lots_of_memory(size_t bytes) {
     static thread_local seastar::semaphore limit(1000000); // limit to 1MB
     return seastar::with_semaphore(limit, bytes, [bytes] {
@@ -333,7 +333,7 @@ seastar::future<> using_lots_of_memory(size_t bytes) {
 
 同时执行的循环的并发数也可以通过semaphore来限制，一个简单的循环如下没有任何并发，下一个`slow()`每次都在前一个`slow()`结束时才会开始：
 
-```C++
+```cpp
 seastar::future<> slow() {
     std::cerr << ".";
     return seastar::sleep(std::chrono::seconds(1));
@@ -347,7 +347,7 @@ seastar::future<> f() {
 
 假设对`slow()`的顺序没有要求，且希望**同时执行多个`slow()`，则可以不关注`slow()`的返回**并每次都直接开始下一个`slow()`如下，此时不等待`slow()`的返回而是一瞬间就开始执行大量的`slow()`，并发数没有任何限制：
 
-```C++
+```cpp
 seastar::future<> f() {
     return seastar::repeat([] {
         slow();
@@ -363,7 +363,7 @@ seastar::future<> f() {
 - 在这里无法使用`with_semaphore()`，因为该函数必须等到lambda结束时才能操作semaphore的计数器，从而`slow()`必须顺序执行而不能并发
 - 在这个场景下也可以使用`get_units()`
 
-```C++
+```cpp
 seastar::future<> f() {
     return seastar::do_with(seastar::semaphore(100), [] (auto& limit) {
         return seastar::repeat([&limit] {
@@ -395,7 +395,7 @@ seastar::future<> f() {
 - 最终执行完456个，期间semaphore一直接近0，每有释放的计数就立即开始新任务，最终`limit.wait(100)`等待计数器返回100时所有任务执行结束（中途不可能回到100）
 - 若没有`finally()`来等待结束，则`f()`返回的future会在发起最后100个`slow()`后就立即ready，而不会等这100个`slow()`完成
 
-```C++
+```cpp
 seastar::future<> f() {
     return seastar::do_with(seastar::semaphore(100), [] (auto& limit) {
         return seastar::do_for_each(
@@ -415,7 +415,7 @@ seastar::future<> f() {
 - 此时semaphore是`thread_local`来限制所有在运行的循环`f()`中的`slow()`并发执行数
 - 每个`slow()`在执行前后需要`gate.enter()/gate.leave()`（也可以采用RAII的方式`seastar::with_gate()`），并且最后通过`gate.close()`来等待一次循环内的所有任务结束
 
-```C++
+```cpp
 thread_local seastar::semaphore limit(100);
 seastar::future<> f() {
     return seastar::do_with(seastar::gate(), [] (auto& gate) {
@@ -456,7 +456,7 @@ seastar提供了`seastar::gate`对象，可以用于服务的管理与优雅关�
 
 当需要停止服务时可以调用`gate::close()`从而此后调用`gate::enter()`就会抛出异常`gate_closed_exception`阻止新任务开始运行，并且`gate::close()`返回的future会在当前正在运行的任务全都结束并调用`gate::leave()`后就绪，此时所有进展中的任务归零，服务可以优雅关闭
 
-```C++
+```cpp
 seastar::future<> f() {
     return seastar::do_with(seastar::gate(), [] (auto& g) {
         return seastar::do_for_each(
@@ -493,7 +493,7 @@ done 5
 
 通常一个长久运行的服务并不会收到`gate::close()`的通知，因此必须要**主动去检查是否应该退出**，采用`gate::check()`来检查，假如已经关闭则检查就会抛出`gate_closed_exception`
 
-```C++
+```cpp
 seastar::future<> slow(int i, seastar::gate &g) {
     std::cerr << "starting " << i << "\n";
     return seastar::do_for_each(
@@ -522,7 +522,7 @@ seastar提供了两种网络模块：Posix（基于Linux内核协议栈以及epo
 
 seastar从main函数开始的主线程是一个shard，因此让每个shard都开始运行网络服务只需要采用线程间通信让每个shard都开始运行即可，每个shard从0开始，`seastar::smp::count`就是shard数量：
 
-```C++
+```cpp
 seastar::future<> f() {
     return seastar::parallel_for_each(boost::irange<unsigned>(0, seastar::smp::count),
             [] (unsigned c) {
@@ -546,7 +546,7 @@ seastar::future<> service_loop() {
 
 拓展到一个简单的echo服务器：
 
-```C++
+```cpp
 seastar::future<> handle_connection(seastar::connected_socket s,
                                     seastar::socket_address a) {
     auto out = s.output(); // output_stream
@@ -595,7 +595,7 @@ seastar::future<> service_loop() {
 
 采用**coroutine实现的echo服务器**（非官方教程给出，并不一定是最接近的实现）：
 
-```C++
+```cpp
 seastar::future<> handle_connection(seastar::connected_socket s,
                                     seastar::socket_address a) {
   auto out = s.output();     // coroutine会管理栈上对象，从而免去do_with()
@@ -639,7 +639,7 @@ seastar::future<> service_loop() {
 - `seastar::sharded<T>::stop()`用于停止所有服务，其底层会调用`T::stop()`
 - `seastar::sharded<T>::inboke_on()`可以在指定的shard上执行任务，传入该指定shard上的`T`实例的引用
 
-```C++
+```cpp
 class my_service {
 public:
     std::string _str;
@@ -675,7 +675,7 @@ seastar::future<> f() {
 
 seastar的命令行选项实际采用了`boost::program_options`，当需要添加自定义的命令行选项时（更详细的使用方式可以参考`boost::program_options`文档）：
 
-```C++
+```cpp
 int main(int argc, char** argv) {
     seastar::app_template app;
     namespace bpo = boost::program_options;
@@ -729,7 +729,7 @@ seastar-addr2line -e a.out
 
 随后将一系列地址信息复制进去并使用`ctrl+D`执行翻译，类似：
 
-```C++
+```cpp
 void seastar::backtrace<seastar::current_backtrace()::{lambda(seastar::frame)#1}>(seastar::current_backtrace()::{lambda(seastar::frame)#1}&&) at include/seastar/util/backtrace.hh:56
 seastar::current_backtrace() at src/util/backtrace.cc:84
 seastar::report_failed_future(std::__exception_ptr::exception_ptr const&) at src/core/future.cc:116
@@ -746,7 +746,7 @@ f() at test.cc:12
 
 由于C++不像Java等语言会保留异常时的调用栈，就需要程序员手动记录调用栈信息，采用`seastar::make_exception_future_with_backtrace`或是`seastar::throw_with_backtrace`来确保异常发生时可以找到抛出的位置：
 
-```C++
+```cpp
 #include <util/backtrace.hh>
 seastar::future<> g() {
     // seastar::throw_with_backtrace<std::runtime_error>("hello")
@@ -776,7 +776,7 @@ seastar重新实现了内存分配器`operator new/delete, malloc()/free()`及�
 
 需要注意的是即使接收线程已经持有了对象的所有权，但是**对象的一些方法有可能访问了源shard中的其他数据，因此也只能通过原线程来执行**（如果能确定不会访问其他数据，例如读取对象的某个成员的值，就可以直接执行）：
 
-```C++
+```cpp
 // fp is some foreign_ptr<>
 return smp::submit_to(fp.get_owner_shard(), [p=fp.get()]
     { return p->some_method(); });

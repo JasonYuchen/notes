@@ -13,7 +13,7 @@ seastar的input file stream**提供了read ahead的选项并内建了缓存**从
 - 对于动态调整选项而言，初始可以采用默认空历史也可以显式给定历史IO情况以更好的指导input stream的read ahead行为
 - 对于file input stream转换为input stream的过程略`TODO`
 
-```C++
+```cpp
 // seastar/core/fstream.hh
 input_stream<char> make_file_input_stream(
     file file, uint64_t offset, uint64_t len, file_input_stream_options options = {});
@@ -57,7 +57,7 @@ public:
     - 每次`get()`请求都会消费当前的头部buffer并发起新的一次预读取`issue_read_aheads(1)`且并不会等待预读取的完成，形成**类似流水线的处理**，并更新相应的一些指标
     - 从`try_increase_read_ahead`可以看出假如已经有数个未完成的读请求时依然未就绪，则发起的请求就会一直增多直到达到阈值`_options.read_ahead`，而若是启用了动态反馈控制则预读取的数量也会同步调整
 
-    ```C++
+    ```cpp
     // seastar/core/fstream.cc
     class file_data_source_impl {
         struct issued_read {
@@ -113,7 +113,7 @@ public:
     - 当没有超过`1/4`设定时就会提升当前缓存大小，同时若更新后的大小超出显式设置缓存大小，就会重新进入慢启动阶段
     - 若在正常运行阶段（非慢启动），仅通过`update_history`记录数据且不会修改缓存
 
-    ```C++
+    ```cpp
     void file_data_source_impl::update_history_consumed(uint64_t bytes) {
         if (!_options.dynamic_adjustments) {
             return;
@@ -159,7 +159,7 @@ public:
     - 在慢启动进入常态运行后就确定了缓存大小，但是每次`skip`跳过数据时就调用`update_history_unused`更新`unused`大小，并会判断是否需要重置缓存大小
     - 同样采用`below_target`，假如`skip`后`unused`增加导致不满足`1/4`比例，就会触发重新分配缓存并重新进入慢启动
 
-    ```C++
+    ```cpp
     void file_data_source_impl::update_history_unused(uint64_t bytes) {
         if (!_options.dynamic_adjustments) {
             return;
@@ -212,7 +212,7 @@ seastar的output file stream**提供了write behind的选项并内建了缓存**
 - 在`file_output_stream_options`中可以看出对一个文件输出流来说可以指定缓存大小、write_behind的IO操作数量、调度的优先级（具体分析[见IO Scheduler](https://github.com/JasonYuchen/notes/blob/master/seastar/Disk_IO_Scheduler.md#%E4%BC%98%E5%85%88%E7%BA%A7-priority-classes-in-scylla)）以及预分配大小
 - 对于file output stream转换为output stream的过程略`TODO`
 
-```C++
+```cpp
 // seastar/core/fstream.hh
 future<output_stream<char>>  make_file_output_stream(
     file file,
@@ -272,7 +272,7 @@ public:
     - 当启用`write_behind`时，会通过信号量`semaphore file_data_sink_impl::_write_behind_sem`来控制并发的IO写入请求数量
     - 并发发起多个IO请求时，**可以看出`_background_writes_done`充当了一个类似链表的作用**，每次新的IO请求都通过`when_all`设置该`future`为已经发起的IO请求和当前新IO请求都完成的`future`，从而形成链式关系，并且当中任意一次失败就会设置`_failed`从而阻止后续一切新请求
 
-    ```C++
+    ```cpp
     virtual future<> file_data_sink_impl::put(temporary_buffer<char> buf) override {
         uint64_t pos = _pos;
         _pos += buf.size();
@@ -324,7 +324,7 @@ public:
 - `input_stream`主要通过一个缓存作为成员变量`_buf`，进而与底层`data_source`进行处理，而文件流`file_data_source`实现了`data_source`，并且其文件流实现例如`file_data_sink_impl`则实现了`data_sink_impl`，从而完成适配
 - `input_stream`需要读取固定字节数量的数据时，首先操作自己的缓存`_buf`，当缓存为空时才会真正向底层发起IO请求
 
-```C++
+```cpp
 template <typename CharType>
 class input_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");

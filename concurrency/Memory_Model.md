@@ -48,18 +48,18 @@
 
     编译器被允许在不改变单线程程序执行结果的前提下，进行各种优化
     - `公共子表达式删除(Common Subexpression Elimination)`$^{[17]}$
-        ```c++
+        ```cpp
         a = b * c + g;   //---------->    tmp = b * c;
         d = b * c * e;   //  rewrite      a = tmp + g;
                          //               d = tmp * e;
         ```
     - `死代码删除(Dead Code Elimination)`
-        ```c++
+        ```cpp
         while (!flag);  //----------->    loop:
                         //                jmp loop
         ```
     - `寄存器分配(Register Allocation)`：下例将对g的2次读取优化成了1次
-        ```c++
+        ```cpp
         a = g;          //----------->    load %r1, 0($mem1)
         b += a;         //  rewrite       add %r2, %r2, %r1 
         a = g;          //                 
@@ -354,7 +354,7 @@ Linux Kernel和高级语言标准都定义了自己的Memory Model，其中有�
 这里用先快速实现、再优化(先WO，再RCpc)，两步走的方式，为几个简单算法加上std::memory_order标志：
 - #### 自旋锁(SpinLock)
     - Version 1：基于WO(std::memory_order_seq_cst)
-        ```c++
+        ```cpp
         struct SpinLock {
             void lock() {
                 for (;;) {
@@ -370,7 +370,7 @@ Linux Kernel和高级语言标准都定义了自己的Memory Model，其中有�
         ```
         - 因为WO本来就是最容易编程的Memory Model，同步变量读写彼此不会乱序，临界区内外的操作也不能跨过同步变量读写乱序，故只要以默认标志编写算法即可
     - Version 2：基于RCpc(std::memory_order_acquire + std::memory_order_release)
-        ```c++
+        ```cpp
         struct SpinLock2 {
             void lock() {
                 for (;;) {
@@ -394,7 +394,7 @@ Linux Kernel和高级语言标准都定义了自己的Memory Model，其中有�
         - **另一种分析正确性的方法，是根据Happens-Before关系推导**
 - #### 读写锁(Readers-Writer Lock)
     - Version 1：基于WO
-        ```c++
+        ```cpp
         struct RWLock {
             void rlock() {
                 for (;;) {
@@ -422,7 +422,7 @@ Linux Kernel和高级语言标准都定义了自己的Memory Model，其中有�
         };
         ```
     - Version 2：基于RCpc
-        ```c++
+        ```cpp
         struct RWLock2 {
             void rlock() {
                 for (;;) {
@@ -460,7 +460,7 @@ Linux Kernel和高级语言标准都定义了自己的Memory Model，其中有�
 
     C++11标准的6.7节确保了传统的static局部变量用作Singleton已经线程安全没必要用Double-Checked，这里仅作演示目的
     - Version 1：基于WO
-        ```c++
+        ```cpp
         template<typename T>
         struct Singleton {
             static T* get() {
@@ -480,7 +480,7 @@ Linux Kernel和高级语言标准都定义了自己的Memory Model，其中有�
         };
         ```
     - Version 2：基于弱化的RCpc(std::memory_order_consume + std::memory_order_release)
-        ```c++
+        ```cpp
         template<typename T>
         struct Singleton2 {
             static T* get() {

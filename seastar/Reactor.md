@@ -16,7 +16,7 @@ reactor模式的核心流程就是`eventloop: repeat(poll tasks -> execute tasks
 
 `pollfn`的核心就是一个`poll()`函数（配合`pure_poll()`辅助使用），而`try_enter_interrput_mode()/exit_interrupt_mode()`是用于系统**低负载时避免循环轮询而进入中断唤醒**模式（一些细节可[见此](Membarrier_Adventures.md)）
 
-```c++
+```cpp
 // seastar/core/internal/poll.hh
 struct pollfn {
     virtual ~pollfn() {}
@@ -62,7 +62,7 @@ reactor引擎的实际使用与执行流程都在`class reactor`中，而支撑�
 
   另外seastar的reactor引擎还支持**轮询polling**和**中断响应interrupt-driven**两种任务执行策略，前者适合高负载环境，可以充分降低中断引入的延迟，后者适合低负载环境，可以避免轮询带来的不必要性能开销
 
-    ```C++
+    ```cpp
     int reactor::run() {
         ////// skip some codes //////
 
@@ -166,7 +166,7 @@ reactor引擎的实际使用与执行流程都在`class reactor`中，而支撑�
 
   因此在reactor的这两个函数中，`poll_once()`会执行每个poller的`poll()`从而确保所有有任务的poller都可以得到执行，而`pure_poll_once()`只是检查是否有任务，任意一个poller存在可以执行的任务就会直接返回
 
-    ```c++
+    ```cpp
     bool reactor::poll_once() {
         bool work = false;
         for (auto c : _pollers) {
@@ -188,7 +188,7 @@ reactor引擎的实际使用与执行流程都在`class reactor`中，而支撑�
 - `reactor::have_more_tasks()`
   在`run()`中检查是否有任务的方式是`poll_once()/pure_poll_once() || have_more_tasks()`，实际上就是检查reactor所拥有的两个任务队列的队列中是否有任务队列存在，这两个队列来接收各种任务队列（**类似于双缓冲**，每次有新任务队列时都加入`_activating_task_queues`，而在reactor运行时该对列会被一次性移动到`_active_task_queues`中），在后面`add_task`中会用到
 
-    ```C++
+    ```cpp
     inline bool reactor::have_more_tasks() const {
         return _active_task_queues.size() + _activating_task_queues.size();
     }
@@ -197,7 +197,7 @@ reactor引擎的实际使用与执行流程都在`class reactor`中，而支撑�
 - `reactor::run_some_tasks()`
   该函数实际执行流程为**将activating queues移动到active queues中，并在被抢占前`need_preempt() == false`连续运行task queue的任务**，下列代码还包含了各种统计信息、CPU暂停检测等代码
 
-    ```C++
+    ```cpp
     void reactor::run_some_tasks() {
         if (!have_more_tasks()) {
             return;
@@ -243,7 +243,7 @@ reactor引擎的实际使用与执行流程都在`class reactor`中，而支撑�
 - `reactor::run_tasks()`
   运行任务的核心就是调用`task::run_and_dispose()`，一次跨核任务的[执行示例](Message_Passing.md)中，第五步省略的reactor执行过程就是这里
 
-    ```C++
+    ```cpp
     void reactor::run_tasks(task_queue& tq) {
         // Make sure new tasks will inherit our scheduling group
         *internal::current_scheduling_group_ptr() = scheduling_group(tq._id);
@@ -279,7 +279,7 @@ reactor引擎的实际使用与执行流程都在`class reactor`中，而支撑�
 
   底层都会监听`_notify_eventfd`从而可以在上层调用`reactor::wakeup()`时唤醒reactor backend从`wait_and_process_events`中恢复轮询执行模式
 
-    ```C++
+    ```cpp
     void reactor::sleep() {
         for (auto i = _pollers.begin(); i != _pollers.end(); ++i) {
             auto ok = (*i)->try_enter_interrupt_mode();
@@ -312,7 +312,7 @@ reactor的上层使用者实际提交各种任务时，会使用的函数：
 - `schedule(task* t) & reactor::add_task(task* t)`
   `add_task`实际上只是根据调度组id将task加入对应的task queue，对应的`add_urgent_task`在流程上完全一样，但是与此不同的是后者在函数体内额外使用了`memory::scoped_critical_alloc_section _`，含义是**此作用域内不应该出现内存分配失败**，如果在此作用域内出现分配失败并且启用了内存诊断，就会dump出内存诊断报告
 
-    ```C++
+    ```cpp
     void schedule(task* t) noexcept {
         engine().add_task(t);
     }
@@ -338,7 +338,7 @@ reactor的上层使用者实际提交各种任务时，会使用的函数：
 - `reactor::activate(task_queue& tq)`
   `activate`只会在`add_task/add_urgent_task`中被使用，用于原先没有task的task queue在收到task时直接激活加入`_activating_task_queues`，并会更新一些统计信息，另外因为此函数是task queue在没有任务时收到第一个任务时会被调用，通常是network/disk I/O的任务而不是CPU任务
 
-    ```C++
+    ```cpp
     void reactor::activate(task_queue& tq) {
         if (tq._active) {
             return;
@@ -366,7 +366,7 @@ reactor另外提供的一些功能：
 - `reactor::add_timer/del_timer`
   计时器相关的功能，其实现就是调用了reactor backend的`arm_highres_timer`，添加一个timer的流程如下：
 
-    ```C++
+    ```cpp
     void reactor::add_timer(timer<steady_clock_type>* tmr) noexcept {
         // 所有timers由timer_set数据结构进行管理，当新增的timer其过期时间小于当前最近过期时间时
         // 就需要直接调用enable_timer进行更新backend timerfd的触发时间

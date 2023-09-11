@@ -19,7 +19,7 @@
 
 ![p1](images/backlog_controller1.png)
 
-```C++
+```cpp
 // Simple proportional controller to adjust shares for processes for which a backlog can be clearly
 // defined.
 //

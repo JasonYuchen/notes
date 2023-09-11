@@ -14,7 +14,7 @@ Seastar采用了thread-per-shard/core的设计，在基于Seastar编写应用程
     - 初始化`commitlog_replayer`
     - 调用`commitlog_replayer::recover`将日志文件列表传入并进行回放
 
-    ```c++
+    ```cpp
     // scylla/main.cc
     auto cl = db.local().commitlog();
     if (cl != nullptr) {
@@ -40,7 +40,7 @@ Seastar采用了thread-per-shard/core的设计，在基于Seastar编写应用程
     - 在`commitlog_replayer::recover`种会采用`map_reduce`的方法由所有shards共同参与recover，且采用`smp::submit_to`确保每个shard负责的文件都是`shard_file_map`中属于该shard的部分，即代码中的`auto range = map->equal_range(id)`
     - 对每个文件依次调用`commitlog_replayer::impl::recover`执行解析和恢复，实际工作主要在`commitlog_replayer::impl::process`中完成
 
-    ```c++
+    ```cpp
     // scylla/db/commitlog/commitlog_replayer.cc
     future<> db::commitlog_replayer::recover(std::vector<sstring> files, sstring fname_prefix) {
         typedef std::unordered_multimap<unsigned, sstring> shard_file_map;
@@ -82,7 +82,7 @@ Seastar采用了thread-per-shard/core的设计，在基于Seastar编写应用程
     }
     ```
 
-    ```c++
+    ```cpp
     // scylla/db/commitlog/commitlog_replayer.cc
     future<db::commitlog_replayer::impl::stats>
     db::commitlog_replayer::impl::recover(sstring file, const sstring& fname_prefix) const {
@@ -116,7 +116,7 @@ Seastar采用了thread-per-shard/core的设计，在基于Seastar编写应用程
     - 首先对日志内容进行解析，构造`commitlog_entry_reader`
     - 使用`_db.local().shard_of(fm)`获得每一个log entry相应数据所属的新shard，并使用`_db.invoke_on(shard, ...)`将数据发送到对应的shard上应用
 
-    ```c++
+    ```cpp
     future<> db::commitlog_replayer::impl::process(stats* s, commitlog::buffer_and_replay_position buf_rp) const {
         auto&& buf = buf_rp.buffer;
         auto&& rp = buf_rp.position;

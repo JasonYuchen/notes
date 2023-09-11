@@ -4,7 +4,7 @@
 
 ## Setting the Scene
 
-```c++
+```cpp
 task f(int x);
 
 task g(int x) {
@@ -15,7 +15,7 @@ task g(int x) {
 
 ## Defining the `task` type
 
-```c++
+```cpp
 class task {
 public:
     struct awaiter;
@@ -118,7 +118,7 @@ coroutine state会包含：
 - **协程的暂停点信息suspend-point，以及恢复resume/摧毁destroy的信息**
 - **跨越suspend-point的本地变量/临时对象的存储**
 
-```c++
+```cpp
 struct __g_state {
     int x;
     __g_promise_t __promise;
@@ -127,7 +127,7 @@ struct __g_state {
 
 编译器会首先尝试采用**左值引用的参数**来构造promise类型，若无法这样构造就会采用promise类型的默认构造，如下：
 
-```c++
+```cpp
 template <typename Promise, typename... Params>
 Promise construct_promise([[maybe_unused]] Param&... params) {
     if constexpr (std::constructible_from<Promise, Params&...>) {
@@ -149,7 +149,7 @@ struct __g_state {
 
 从而一个协程的改写从分配coroutine state开始，假如从堆分配，则：
 
-```c++
+```cpp
 task g(int x) {
     auto* state = new __g_state(static_cast<int&&>(x));
     // ...
@@ -160,7 +160,7 @@ task g(int x) {
 
 而内存分配的函数同样也会传入协程函数的参数，允许可以**根据参数进行不同的内存分配定制化**，这也被称为**parameter preview**
 
-```c++
+```cpp
 template <typename Promise, typename... Args>
 void* __promise_allocate(std::size_t size, [[maybe_unused]] Args&... args) {
     if constexpr (requires { Promise::operator new(size, args...); }) {
@@ -184,7 +184,7 @@ task g(int x) {
 
 假如promise类型还额外定义了**分配失败的处理**，即`get_return_object_on_allocation_failure()`，则编译器会改写为如下流程：
 
-```c++
+```cpp
 task g(int x) {
     auto* state = ::new (std::nothrow) __g_state(static_cast<int&&>(x));
     if (state == nullptr) {
@@ -195,7 +195,7 @@ task g(int x) {
 
 ## Step 3: Call `get_return_object()`
 
-```c++
+```cpp
 task g(int x) {
     // get_return_object() might throw
     std::unique_ptr<__g_state> state(new __g_state(static_cast<int&&>(x)));
@@ -221,7 +221,7 @@ task g(int x) {
 
 由于从`initial_suspend()`和`operator co_await()`返回的对象其生命周期将会跨越suspend-point，因此需要将其也存储在coroutine state上，这里采用辅助类`manual_lifetime`来帮助**手动处理上述返回对象的生命周期问题**
 
-```c++
+```cpp
 template <typename T>
 struct manual_lifetime {
     manual_lifetime() noexcept = default;
@@ -251,7 +251,7 @@ private:
 
 在本例中，`initial_suspend()`的返回值总是`std::suspend_always`，因此采用`manual_lifetime`来管理该返回对象，而该对象并没有`operator co_await()`，因此省略一个额外的`operator co_await()`返回对象管理，coroutine state如下：
 
-```c++
+```cpp
 struct __g_state {
     __g_state(int&& x);
 
@@ -270,7 +270,7 @@ struct __g_state {
 
 由于在`std::suspend_always` **awaiter**上的方法均是不会抛出异常的`noexcept`，因此可以简化该阶段异常的处理，当`await_suspend()`能成功无异常返回时，由`unique_ptr`管理的coroutine state就不应该自动释放，此时应该显式`release`
 
-```c++
+```cpp
 task g(int x) {
     std::unique_ptr<__g_state> state(new __g_state(static_cast<int&&>(x)));
     decltype(auto) __return_val = state->__promise.get_return_object();
@@ -300,7 +300,7 @@ task g(int x) {
 
 一种典型的记录方式是在每一个暂停点使用整数索引记录位置（目前的三大主流编译器均采用这种实现）：
 
-```c++
+```cpp
 struct __g_state {
     __g_state(int&& x);
 
@@ -317,7 +317,7 @@ struct __g_state {
 
 `coroutine_handle`的接口对具体的实现类没有任何信息，`coroutine_handle<void>`可以**指向任意协程实例**，因此需要采用**类型擦除type-erasure**的方式，例如采用函数指针的方式，并且在`resume/destroy`时实际调用具体的函数指针：
 
-```c++
+```cpp
 struct __coroutine_state {
     using __resume_fn = void(__coroutine_state*);
     using __destroy_fn = void(__coroutine_state*);
@@ -377,7 +377,7 @@ namespace std
 
 同样由于`coroutine_handle<Promise>`需要能够操作任意的promise类型为`Promise`的coroutine state，也需要采用类似的方式，定义coroutine state继承`__coroutine_state`来包含promise对象
 
-```c++
+```cpp
 template <typename Promise>
 struct __coroutine_state_with_promise : __coroutine_state {
     __coroutine_state_with_promise() noexcept {}
@@ -391,7 +391,7 @@ struct __coroutine_state_with_promise : __coroutine_state {
 
 注意，由于作为基类，其数据构造会先于派生类的构造进行，而我们**需要`Promise`的构造能够在派生类的参数复制之后进行**，从而参数复制可能会被传递给`Promise`的构造，因此将`Promise`放置在`union`中：
 
-```c++
+```cpp
 struct __g_state : __coroutine_state_with_promise<__g_promise_t> {
     __g_state(int&& __x)
     : x(static_cast<int&&>(__x)) {
@@ -415,7 +415,7 @@ struct __g_state : __coroutine_state_with_promise<__g_promise_t> {
 - `promise()`
 - `from_promise()`
 
-```c++
+```cpp
 namespace std
 {
     template<typename Promise>
@@ -446,7 +446,7 @@ namespace std
 
 ## Step 8: The beginnings of the coroutine body
 
-```c++
+```cpp
 void __g_resume(__coroutine_state* s);
 void __g_destroy(__coroutine_state* s);
 
@@ -481,7 +481,7 @@ task g(int x) {
 }
 ```
 
-```c++
+```cpp
 void __g_resume(__coroutine_state* s) {
     // We know that 's' points to a __g_state.
     auto* state = static_cast<__g_state*>(s);
@@ -526,7 +526,7 @@ destroy_state:
 
 对于`co_await f(x)`，首先`f(x)`会返回一个临时的`task`对象，该对象跨越了暂停点，因此需要被保存到coroutine state中，同时`co_await task`会调用`operator co_await()`并生成`awaiter`对象，也跨越了暂停点，需要保存到coroutine state中
 
-```c++
+```cpp
 struct __g_state : __coroutine_state_with_promise<__g_promise_t> {
     __g_state(int&& __x);
     ~__g_state();
@@ -541,7 +541,7 @@ struct __g_state : __coroutine_state_with_promise<__g_promise_t> {
 
 相应的`__g_resume()`就需要相应的处理第一个暂停点的恢复流程，注意`await_suspend()`如果返回了coroutine handle，则需要调用其`resume()`：
 
-```c++
+```cpp
 void __g_resume(__coroutine_state* s) {
     // We know that 's' points to a __g_state.
     auto* state = static_cast<__g_state*>(s);
@@ -632,7 +632,7 @@ destroy_state:
 
 特别注意对`awaiter::await_suspend()`返回的coroutine handle调用`resume()`时可能会抛出的异常不需要被当前协程捕获，因此直接继续抛出，另外这里额外定义了RAII的`destructor_guard`来帮助处理`__tmp3.get().await_resume()`可能抛出异常导致`__tmp3`没有合理析构的问题
 
-```c++
+```cpp
 void __g_resume(__coroutine_state* s) {
     auto* state = static_cast<__g_state*>(s);
 
@@ -717,7 +717,7 @@ resume_coro:
 
 `co_return`会被直接替换为：
 
-```c++
+```cpp
 // promise.return_value(<expr>);
 // goto final-suspend-point;
 
@@ -729,7 +729,7 @@ goto final_suspend;
 
 `final_suspend()`方法需要返回一个临时的`task::promise_type::final_awaiter`对象，该对象也需要存储到coroutine state中，且被`__g_destroy()`正确销毁，并且该对象并没有`operator co_await`，因此不需要处理相应的`awaiter`
 
-```C++
+```cpp
 struct __g_state : __coroutine_state_with_promise<__g_promise_t> {
     __g_state(int&& __x);
     ~__g_state();
@@ -745,7 +745,7 @@ struct __g_state : __coroutine_state_with_promise<__g_promise_t> {
 
 略去`__g_destroy()`，其与前述的修改类似，而相应的`__g_resume()`中的`final_suspend`部分就是:
 
-```c++
+```cpp
 final_suspend:
     // co_await promise.final_suspend
     {
@@ -779,7 +779,7 @@ final_suspend:
 
 **采用tail call的方式将递归优化为循环**：
 
-```C++
+```cpp
 struct __coroutine_state {
     using __resume_fn = __coroutine_state* (__coroutine_state*);
     using __destroy_fn = void (__coroutine_state*);
@@ -798,7 +798,7 @@ void std::coroutine_handle<void>::resume() const {
 
 从而前述的`__g_resume()`的实现也可以修改为返回`coroutine_handle`：
 
-```C++
+```cpp
 coro_to_resume = ...;
 goto resume_coro;
 
@@ -822,7 +822,7 @@ return static_cast<__coroutine_state*>(std::noop_coroutine().address());
 
 从而利用不重叠的临时对象生命周期，coroutine state的临时对象存储可以优化为：
 
-```c++
+```cpp
 struct __g_state : __coroutine_state_with_promise<__g_promise_t> {
     __g_state(int&& x);
     ~__g_state();
@@ -845,7 +845,7 @@ struct __g_state : __coroutine_state_with_promise<__g_promise_t> {
 
 ## Tying it all together
 
-```c++
+```cpp
 task g(int x) {
     int fx = co_await f(x);
     co_return fx * fx;

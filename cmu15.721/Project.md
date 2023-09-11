@@ -43,7 +43,7 @@
 6. 使用`extract_actual_clauses(scan_clauses, false)`在`GetForeignPlan()`中处理`scan_clauses`，一开始直接`NIL`会导致后面有聚合操作的查询失败，例如`SELECT COUNT(*) FROM`，因为`COUNT(*)`是更上层执行的，这里的一个额外优化点之一就是**Aggregation Pushdown**
 7. 对于不需要输出的字段（即**Projection Pushdown**），必须在设置tuple时设置为空（否则会出现任意Segmentation Fault，猜测是因为`tts_isnull`为任意`true`或者`false`，则可能导致进一步去使用持有任意值`tts_values`），例如：
 
-   ```c++
+   ```cpp
    for (int attr = 0; attr < slot->tts_tupleDescriptor->natts; attr++) {
       slot->tts_isnull[attr] = true;
    }

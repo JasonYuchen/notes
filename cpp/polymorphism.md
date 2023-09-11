@@ -6,7 +6,7 @@
 
 ### 虚函数的方式实现动态多态
 
-```C++
+```cpp
 struct Animal {
   virtual std::string name() = 0;
   virtual std::string eats() = 0;
@@ -29,7 +29,7 @@ int main() {
 
 虚拟函数的存在导致编译器等到运行时才知道真正调用的函数，从而**阻止了编译期的内联、函数级优化**，例如下面测试的非虚拟函数版本，`log(10)`在编译期就可以被计算完成，因此**大量使用虚拟函数会限制编译器的优化**
 
-```c++
+```cpp
 class A {
  public:
   virtual int f(double d, int i) {
@@ -61,7 +61,7 @@ int main() {
 - 性能更好：对象创建在栈上，没有虚函数调用
 - 更加灵活：没有继承，但是类型安全变弱
 
-```C++
+```cpp
 template<typename T>
 concept Animal = requires(T a) {
   { a.eats() } -> std::convertible_to<std::string>;
@@ -91,7 +91,7 @@ int main() {
 - 性能几乎与模板一样快
 - 几乎和传统OO一样动态，例如可以使用`std::set<Animal>`等
 
-```C++
+```cpp
 using Animal = std::variant<Cat, Dog>;
 
 int main() {
@@ -106,7 +106,7 @@ int main() {
 
 当需要额外加方法重载时需要额外借助可变参模板用于继承调用运算符`operator()`，仅需定义一次就可以在需要的情况下使用，又被称为**重载模式overload pattern**：
 
-```C++
+```cpp
 // only do this once, inherit all call operator
 template<typename... Ts>
 struct overload : Ts... { using Ts::operator()...; };
@@ -127,7 +127,7 @@ int main() {
 
 CRTP通过派生类继承基类且自身就是基类的特化，从而提供了静态多态的方式，**基类的所有方法就会被通过静态转换成派生类的方法**，免除了虚函数调用
 
-```c++
+```cpp
 // https://stackoverflow.com/questions/4173254/what-is-the-curiously-recurring-template-pattern-crtp
 template<typename T>
 struct Base {
@@ -167,7 +167,7 @@ C++11中提供了共享所有权的智能指针`std::shared_ptr`，而当一个�
 
 标准库提供了`std::enable_shared_from_this<T>`来解决，也是利用了CRTP的原理，其用法如下：
 
-```c++
+```cpp
 class Foo : public std::enable_shared_from_this<Foo> {
  public:
   void do() {
@@ -179,7 +179,7 @@ class Foo : public std::enable_shared_from_this<Foo> {
 
 `std::enable_shared_from_this`的原理就是在基类中使用`weak_ptr`来记录需要`shared_from_this`的类，并且在构造过程中，判断是否来自`weak_ptr`：
 
-```c++
+```cpp
 // simplified source code from libstdc++
 template<typename T>
 class enable_shared_from_this {

@@ -35,7 +35,7 @@ Redshift会根据query和schema生成相应的C++代码，每个生成的代码�
 
 例如`SELECT sum(R.val) FROM R, S WHERE R.key = S.key AND R.val < 50`会生成简化流程如下的代码
 
-```c++
+```cpp
 // loop over R
 while (scan_step->has_next()) {
   auto field1 = fetcher1.get_next();
@@ -66,7 +66,7 @@ Redshift的pipeline执行模式会延迟物化结果，始终保持column数据�
 
 Redshift采用probe hash table前插入预读**prefetching**来减轻memory stall导致的性能损失，在CPU L1持有一个环形缓冲区circular buffer，每个新tuple抵达时就会被prefetch/push到buffer中，并且一个旧tuple就会被pop/push到pipeline下游，参考[Relaxed Operator Fusion with Prefetching](08.Vectorized_Execution.md#selection-scans)，以及[Hybrid Models](Compiled_Vectorized_Queries.md#beyond-basic-vectorization-and-data-centric-code-generation)
 
-```c++
+```cpp
 // ...
 size_t h1 = hash(field) & (hashtable1_size - 1);
 // prefetch

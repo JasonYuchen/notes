@@ -23,7 +23,7 @@
 - **消息传递**
   简单的消息传递方式如下，显式的将一个任务递交给另一个cpu进行处理
 
-    ```c++
+    ```cpp
     smp::submit_to(cpu, lambda);
     ```
 
@@ -71,7 +71,7 @@ seastar在用户态重新实现了TCP/IP协议栈，零拷贝zero-copy、无锁z
 
 seastar通过跨核使用无锁队列进行通信，采用了Actor模式，典型用法：
 
-```C++
+```cpp
 // 从对端读取4个字节，在完成时放入temporary_buffer并调用lambda
 return conn->read_exactly(4).then([this] (temporary_buffer<char> buf) {
   int id = buf_to_id(buf);

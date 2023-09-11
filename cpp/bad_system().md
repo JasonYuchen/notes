@@ -22,7 +22,7 @@ system() does not affect the wait status of any other children.
 
 `::system()`的cmd返回值是通过`wait`来获得的，而`wait`依赖`SIGCHLD`信号，如果在程序中错误设置了`SIGCHLD`信号的`handler`，就会出现`wait`无法找到`::system()`运行cmd的子进程，导致无法得知cmd的返回情况，此时会返回`-1`，例如（注意在WSL下无法复现这种情况）：
 
-```c++
+```cpp
 signal(SIGCHLD, SIG_IGN);        // 忽略SIGCHLD命令
 int r = ::system("ls .");        // 实际会执行成功，输出当前目录下所有文件
 cout << "return of system: "
@@ -36,7 +36,7 @@ return 0;
 
 因此使用`::system()`时，保险起见需要提前对`signal(SIGCHLD, SIG_DFL)`进行恢复默认的`handler`，处理结束后再回到原先的`handler`，例如：
 
-```c++
+```cpp
 struct sigaction act, old_act;
 act.sa_handler = SIG_DFL;              // 默认的SIGCHLD处理函数
 sigemptyset(&act.sa_mask);

@@ -6,7 +6,7 @@
 
 早期Linux提供了**阻塞的系统调用**用于文件描述符（文件/socket等）的I/O，调用时当前线程就会阻塞等待直到调用完成
 
-```c++
+```cpp
 ssize_t read(int fd, void *buf, size_t count);
 ssize_t write(int fd, const void *buf, size_t count);
 ```
@@ -77,7 +77,7 @@ sqe所在的**submission ring**和cqe所在的**completion ring**就是由kernel
 
 - 发起IO请求
 
-    ```c++
+    ```cpp
     /* Describes what we need from a read */
     struct read_descriptor {
         int fd;
@@ -114,7 +114,7 @@ sqe所在的**submission ring**和cqe所在的**completion ring**就是由kernel
 
 - 处理完成的IO请求
 
-    ```c++
+    ```cpp
     /*
     * Consume reads that are available and returns how many were consumed.
     * System calls issued: ZERO!
@@ -167,7 +167,7 @@ sqe所在的**submission ring**和cqe所在的**completion ring**就是由kernel
 
   注意为了避免在没有新I/O操作时内核polling线程浪费资源，会在idle一段时间（idle市场可以通过`sq_thread_idle`设置，默认为1秒）后进入休眠，此时需要主动使用`IORING_ENTER_SQ_WAKEUP`唤醒，流程如下：
 
-    ```c++
+    ```cpp
     /* fills in new sqe entries */
     add_more_io();
     /*
@@ -210,7 +210,7 @@ sqe所在的**submission ring**和cqe所在的**completion ring**就是由kernel
 
 ### Basic usage
 
-```c++
+```cpp
 // setup
 struct io_uring ring;
 io_uring_queue_init(ENTRIES, &ring, 0);

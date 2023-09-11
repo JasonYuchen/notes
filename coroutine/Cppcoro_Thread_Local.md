@@ -4,7 +4,7 @@
 
 当协程跨线程使用时，TLS也会随之改变，因此在协程中应谨慎或避免使用TLS
 
-```C++
+```cpp
 thread_local int tls = 1;
 
 cout << tls << std::endl;  // 1

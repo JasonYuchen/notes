@@ -36,7 +36,7 @@ C/C++中存在的未定义行为UB是因为语言设计者希望C/C++成为一�
 - **违背类型规则 Violating Type Rules**
   例如将一个`int*`强制转换为`float*`并且访问也是UB（C语言要求此类操作通过`memcpy`来实现），这种UB允许**基于类型的别名分析Type-Based Alias Analysis, TBAA**引入大量优化，从而显著提升性能，例如如下函数，编译器可以将之直接优化为`memset(P, 0, 40000);`：
 
-  ```c++
+  ```cpp
   float *P;
   void zero_array() {
     int i;
@@ -48,7 +48,7 @@ C/C++中存在的未定义行为UB是因为语言设计者希望C/C++成为一�
   
   通过`-fno-strict-aliasing`可以手动禁止该UB，从而禁止了TBAA，此时编译器必须根据`zero_array`实现一次循环赋值，因为此时编译器必须假定可能存在下述用法改变了`P`的值：
 
-  ```c++
+  ```cpp
   int main() {
     P = (float*)&P; // Type-Based Alias Analysis, TBAA violation in zero_array
     zero_array();
@@ -63,7 +63,7 @@ C/C++中存在的未定义行为UB是因为语言设计者希望C/C++成为一�
 
 现代编译器的优化器有非常多的优化路线，并且会以一定的顺序迭代式的处理代码实现优化，不同的编译器包含的优化器实现也不同，例如下述代码：
 
-```c++
+```cpp
 void contains_null_check(int *P) {
   int dead = *P;
   if (P == 0)
@@ -74,7 +74,7 @@ void contains_null_check(int *P) {
 
 - 假如编译器首先运行Dead Code Elimination，随后运行Redundant Null Check Elimination：
 
-  ```c++
+  ```cpp
   void contains_null_check(int *P) {
     // int dead = *P;    <- 1.dead code is eliminated
     if (P == 0)       // <- 2.not a redundant null check
@@ -85,7 +85,7 @@ void contains_null_check(int *P) {
 
 - 假如编译器首先运行Redundant Null Check Elimination，随后运行Dead Code Elimination：
 
-  ```c++
+  ```cpp
   void contains_null_check(int *P) {
     int dead = *P;    // <- 1.deference means the P cannot be NULL,
     if (false)        //      so this redundant null check is replaced by false
@@ -94,7 +94,7 @@ void contains_null_check(int *P) {
   }
   ```
 
-  ```c++
+  ```cpp
   void contains_null_check(int *P) {
     // int dead = *P; // <- 2.dead code is eliminated
     // if (false)
@@ -111,7 +111,7 @@ void contains_null_check(int *P) {
 
 未定义行为同样影响了程序的安全性，下述程序通过使用`size > size+1`来检查整数溢出的情况（多的一字节长度用来存储终止符`\0`），而这段检查是未定义行为，同样可能被优化器直接移除（有符号数的溢出是未定义的），随后如果真的出现溢出，读入的数据就会超出`string`能够存放的长度，从而实现**缓冲区溢出攻击**
 
-```c++
+```cpp
 void process_something(int size) {
   // Catch integer overflow.
   if (size > size+1)
@@ -130,7 +130,7 @@ void process_something(int size) {
 
 在优化后的代码中可能会出现意想不到的结果，例如下述代码中若忘记将`i`初始化，则由于**使用未初始化变量**属于未定义行为，优化器可以将整个`zero_array`函数直接丢弃：
 
-```c++
+```cpp
 float *P;
 void zero_array() {
   int i;
@@ -142,7 +142,7 @@ void zero_array() {
 
 另一种场景如下，由于**采用空指针作为函数指针调用**属于未定义行为，优化器可以假定调用`FP()`时，一定已经调用了`set()`进行赋值，从而可以实现如下替换，这种情况在优化后的代码中不会出现崩溃，但是在debug中的代码就会出现崩溃：
 
-```c++
+```cpp
 static void (*FP)() = 0;
 static void impl() {
   printf("hello\n");
@@ -155,7 +155,7 @@ void call() {
 }
 ```
 
-```c++
+```cpp
 void set() {}
 void call() {
   printf("hello\n");

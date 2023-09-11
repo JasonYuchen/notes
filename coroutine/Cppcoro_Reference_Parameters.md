@@ -8,7 +8,7 @@
   C++20引入的协程是无栈式的stackless协程，因此在协程切换时整个调用栈都会被销毁（不用保存调用栈从而非常轻量高效），只有局部变量会被保存随后恢复，而对于引用的局部变量，**只有引用本身被拷贝进协程栈**，被引用的实际对象并不会被拷贝，因此很有可能导致无效引用
 - **转发引用 Forwarding references**
 
-    ```C++
+    ```cpp
     template<typename T>
     void f(T&& x);
 
@@ -23,7 +23,7 @@
 
 假定现在有一个非常简单的协程利用`generator`实现一个懒惰的map操作：
 
-```c++
+```cpp
 template<typename T>
 using range_value_t = decltype(*std::declval<T>().begin());
 
@@ -37,7 +37,7 @@ generator<std::result_of_t<F(range_value_t<T>)>> map(const T& v, F f) {
 
 而这个协程返回的懒惰求值的`generator`提供了`begin()/end()`用于获取一系列值，可以如下使用：
 
-```c++
+```cpp
 std::vector<int> v{1, 2, 3, 4};
 auto f = [](int i) { return i * 2; };
 for (auto&& element : map(v, f)) {
@@ -47,7 +47,7 @@ for (auto&& element : map(v, f)) {
 
 此时发现变量`v`是多余的，而如果直接消去，**在`map`调用时传入一个临时构造的`std::vector<int>{1, 2, 3, 4}`就会导致未定义行为UB**，展开这种做法下的range-based for实际上是这样的：
 
-```c++
+```cpp
 {
   auto&& __range = map(std::vector<int>{1, 2, 3, 4}, f);
   for (auto __begin = __range.begin(), __end = __range.end();
@@ -71,7 +71,7 @@ for (auto&& element : map(v, f)) {
 
 由于临时变量被引用才会导致上述问题，因此谨慎的使用转发确保协程**引用非临时变量而拷贝/移动了临时变量**，来避免这种问题，例如：
 
-```c++
+```cpp
 // 将原先的map接受引用const T& v改为接受值对象T v
 template<typename T, typename F>
 generator<std::result_of_t<F(range_value_t<T>)>>
@@ -95,7 +95,7 @@ auto map(T&& v, F f) {
 
 使用一个显式的方式来调用协程函数，告知是否可以存储引用例如这种方式：
 
-```c++
+```cpp
 std::vector v{1, 2, 3, 4};
 return map(v, f);           // copies v
 return map(std::ref(v), f); // stores a reference to v
@@ -103,7 +103,7 @@ return map(std::ref(v), f); // stores a reference to v
 
 此时需要对原先的`map`修改为处理`std::reference_wrapper`的方式：
 
-```c++
+```cpp
 template<typename T>
 using unwrap_reference_t = decltype(std::ref(std::declval<T>()).get());
 
@@ -119,7 +119,7 @@ generator<std::result_of_t<F(range_value_t<unwrap_reference_t<T>>)>> map(T v, F 
 
 使用不同函数来处理引用与非引用的方式：
 
-```c++
+```cpp
 // 对于引用对象，利用引用折叠，继续调用map_impl<T&&>，从而保持引用
 template<typename T, typename F>
 auto map_ref(T&& v, F f) {
@@ -148,7 +148,7 @@ auto map_val(T&& v, F f) {
 
 构造一个只支持移动的类`test`，并在构造函数中添加输出信息帮助确认生命周期
 
-```C++
+```cpp
 class test {
   public:
   int _id = -1;
@@ -178,7 +178,7 @@ class test {
 
 在循环中调用被测试的函数并且**不等待返回结果立即开始下一轮循环**（这也是本次测试的由来，在seastar应用中通常会循环`listener->accept()`并开始处理连接，且不会等待该连接处理完而是直接准备下一次`accept()`创建新的连接，[见此](https://github.com/JasonYuchen/notes/blob/master/seastar/Comprehensive_Tutorial.md#%E7%BD%91%E7%BB%9C%E6%A0%88-introducing-seastars-network-stack)），从而局部变量应立即析构：
 
-```C++
+```cpp
 int main(int argc, char** argv) {
   seastar::app_template app;
   app.run(argc, argv, [] () -> seastar::future<> {
@@ -205,7 +205,7 @@ int main(int argc, char** argv) {
 
 1. 调用成员函数（**不安全**）
 
-    ```C++
+    ```cpp
     seastar::future<> handle() {
       cout << "start" << endl;
       co_await seastar::sleep(1s);
@@ -228,7 +228,7 @@ int main(int argc, char** argv) {
 
 2. 移动一份对象交给协程（**安全**）
 
-    ```C++
+    ```cpp
     seastar::future<> handle(test o) {
       co_return co_await o.handle();
     }
@@ -259,7 +259,7 @@ int main(int argc, char** argv) {
 
 3. 协程左值引用外部变量（与第一种调用成员函数本质上相同,**不安全**）
 
-    ```C++
+    ```cpp
     seastar::future<> handle_lref(test& o) {
       co_return co_await o.handle();
     }
@@ -280,7 +280,7 @@ int main(int argc, char** argv) {
 
 4. 协程右值引用外部变量（**不安全**）
 
-    ```C++
+    ```cpp
     seastar::future<> handle_rref(test&& o) {
       co_return co_await o.handle();
     }
@@ -301,7 +301,7 @@ int main(int argc, char** argv) {
 
 5. 指针（**安全**）
 
-    ```C++
+    ```cpp
     seastar::future<> handle_sp(seastar::lw_shared_ptr<test> o) {
       co_return co_await o->handle();
     }
