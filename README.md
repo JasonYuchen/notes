@@ -90,6 +90,10 @@ Notes about various courses, projects, books, papers, topics, blogs, etc.
 
   a Kafka-compatible streaming data platform
 
+- **righting** (book)
+
+  *Righting Software - A Method for System and Project Design*, Juval Löwy
+
 - **seastar** (project)
 
   [an advanced C++ framework](http://seastar.io) for high-performance server applications on modern hardware
