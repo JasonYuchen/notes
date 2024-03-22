@@ -38,13 +38,17 @@ Notes about various courses, projects, books, papers, topics, blogs, etc.
 
   miscellaneous topics of Database
 
+- **dbp** (book)
+
+  *Database Performance at Scale*, Felip Cardeneti
+
 - **dcr** (thesis)
 
   *Distributed Consensus Revised*, Heidi Howard
 
 - **ddia** (book)
 
-  *Design Data Intensive Applications*, Martin Kleppmann
+  *Design Data Intensive Applications*, Martin Kleppmann (awesome)
 
 - **dragonboat** (project)
 
@@ -57,6 +61,10 @@ Notes about various courses, projects, books, papers, topics, blogs, etc.
 - **dsaaa** (book)
 
   *Distributed Systems: An Algorithmic Approach*, Sukumar Ghosh
+
+- **es** (book)
+
+  *ElasticSearch in Action*, Madhusudhan Konda (not good)
 
 - **kafka** (book)
 
