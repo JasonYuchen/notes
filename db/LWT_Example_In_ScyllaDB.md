@@ -243,3 +243,7 @@ CREATE MATERIALIZED VIEW orphaned_transfers AS
 ```
 
 `TODO: 补充更多细节，当其中一个账户的锁无法拿到等`
+
+[An additional challenge: there is a very improbable race if a transfer takes longer than 30 seconds](https://github.com/scylladb/scylladb/issues/6149)
+
+> ScyllaDB introduced Paxos table pruning to not rely on TTL for correctness.
