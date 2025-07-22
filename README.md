@@ -66,6 +66,10 @@ Notes about various courses, projects, books, papers, topics, blogs, etc.
 
   *ElasticSearch in Action*, Madhusudhan Konda (not good)
 
+- **iceberg** (book)
+
+  *Apache Iceberg The Definitive Guide*, Tomer Shiran
+
 - **kafka** (book)
 
   *Kafka The Definitive Guide*, Gwen Shapira
@@ -77,6 +81,10 @@ Notes about various courses, projects, books, papers, topics, blogs, etc.
 - **mit6.824** (course)
 
   [Distributed Systems Engineering](https://pdos.csail.mit.edu/6.824/schedule.html) is a course for MIT computer science students
+
+- **mongo** (database)
+
+  *[MongoDB](https://www.mongodb.com/): The Definitive Guide*, Shannon Bradshaw
 
 - **mp** (book)
 
